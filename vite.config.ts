@@ -1,11 +1,15 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
+// GitHub Pages base: '/tinda-owner-dashboard/' or configurable via env
 export default defineConfig({
   plugins: [react()],
+  base: process.env.VITE_BASE || './',
   server: {
-    port: 3000,
-    host: true
+    port: 5174,
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: false
   }
 })

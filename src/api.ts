@@ -1,12 +1,11 @@
-import type { SummaryResponse, BranchDetailResponse } from './types'
+// Default API URL points to live Cloudflare Worker
+const DEFAULT_API_URL = ((import.meta as any).env?.VITE_API_URL as string) || 'https://tinda-sync.yomikaze-md.workers.dev'
 
-const DEFAULT_API_URL = 'https://tinda-sync.yomikaze-md.workers.dev'
-
-export function getApiUrl(): string {
+export function getApiBase(): string {
   return localStorage.getItem('tinda_api_url') || DEFAULT_API_URL
 }
 
-export function setApiUrl(url: string): void {
+export function setApiBase(url: string): void {
   localStorage.setItem('tinda_api_url', url.replace(/\/+$/, ''))
 }
 
@@ -22,91 +21,56 @@ export function clearToken(): void {
   localStorage.removeItem('tinda_owner_token')
 }
 
-export function money(cents: number | null | undefined): string {
-  const val = (cents ?? 0) / 100
-  return '₱ ' + val.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-export function formatTime(isoString: string | null | undefined): string {
-  if (!isoString) return 'Never'
-  try {
-    const fixed = isoString.includes(' ') && !isoString.includes('T') ? isoString.replace(' ', 'T') : isoString
-    const d = new Date(fixed)
-    if (isNaN(d.getTime())) return isoString
-    
-    // Relative time calculation
-    const diffSec = Math.floor((Date.now() - d.getTime()) / 1000)
-    if (diffSec < 60) return 'Just now'
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return isoString
-  }
-}
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const baseUrl = getApiUrl()
+export async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const base = getApiBase()
   const token = getToken()
   const headers = new Headers(options.headers || {})
-
+  
   if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
     headers.set('Content-Type', 'application/json')
   }
+  
   if (token) {
     headers.set('Authorization', `Bearer ${token}`)
   }
-
-  const res = await fetch(`${baseUrl}${path}`, {
+  
+  const res = await fetch(`${base}${endpoint}`, {
     ...options,
-    headers
+    headers,
   })
-
-  const data = await res.json().catch(() => ({
-    ok: false,
-    error: 'Network error or invalid server response'
-  }))
-
-  if (!res.ok || data.ok === false) {
+  
+  const data = await res.json().catch(() => ({ ok: false, error: 'Network error or invalid JSON response' }))
+  
+  if (!res.ok || (data && data.ok === false)) {
     if (res.status === 401 && (data.code === 'SESSION_EXPIRED' || data.code === 'UNAUTHORIZED')) {
       clearToken()
       window.location.reload()
     }
     throw new Error(data.error || `Request failed (${res.status})`)
   }
-
+  
   return data as T
 }
 
-export async function loginOwner(username: string, password: string): Promise<{ ok: boolean; token: string }> {
-  const res = await request<{ ok: boolean; token: string }>('/api/owner/login', {
-    method: 'POST',
-    body: JSON.stringify({ username, password })
-  })
-  if (res.token) setToken(res.token)
-  return res
+export function formatPesos(centavos: number | null | undefined): string {
+  const c = centavos ?? 0
+  return '₱' + (c / 100).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export async function setupOwner(username: string, password: string): Promise<{ ok: boolean; token: string }> {
-  const res = await request<{ ok: boolean; token: string }>('/api/owner/setup', {
-    method: 'POST',
-    body: JSON.stringify({ username, password })
-  })
-  if (res.token) setToken(res.token)
-  return res
-}
-
-export async function linkBranch(storeId: string, syncKey: string): Promise<{ ok: boolean; message: string }> {
-  return request<{ ok: boolean; message: string }>('/api/owner/branch/link', {
-    method: 'POST',
-    body: JSON.stringify({ store_id: storeId.trim(), sync_key: syncKey.trim() })
-  })
-}
-
-export async function fetchSummary(from: string, to: string): Promise<SummaryResponse> {
-  return request<SummaryResponse>(`/api/owner/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
-}
-
-export async function fetchBranchDetail(storeId: string, from: string, to: string): Promise<BranchDetailResponse> {
-  return request<BranchDetailResponse>(`/api/owner/branch/${encodeURIComponent(storeId)}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return 'Never'
+  try {
+    const cleanIso = iso.includes(' ') && !iso.includes('T') ? iso.replace(' ', 'T') : iso
+    const d = new Date(cleanIso)
+    if (isNaN(d.getTime())) return iso
+    return d.toLocaleString('en-PH', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    })
+  } catch {
+    return iso
+  }
 }

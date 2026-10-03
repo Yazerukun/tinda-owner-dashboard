@@ -1,0 +1,19 @@
+{
+  "name": "tinda-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-10-22",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tinda-sync-db",
+      "database_id": "74f850c3-d414-4ae6-9cd9-23a1448a887b"
+    }
+  ],
+
+  "vars": {
+    "ENVIRONMENT": "development",
+    "SESSION_SECRET": "change-this-in-production-use-wrangler-secret"
+  }
+}

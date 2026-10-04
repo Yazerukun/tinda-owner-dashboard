@@ -58,6 +58,24 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
     setTimeout(() => setCopiedId(false), 2000)
   }
 
+  const handleToggleSaleStatus = async (saleId: number, currentStatus: string) => {
+    const nextStatus = currentStatus === 'VOIDED' ? 'COMPLETED' : 'VOIDED'
+    const actionLabel = nextStatus === 'VOIDED' ? 'Mark as VOIDED' : 'Mark as PAID'
+    if (!window.confirm(`${actionLabel} for this transaction? This will update your Net Sales immediately.`)) {
+      return
+    }
+    try {
+      triggerHaptic('medium')
+      await request(`/api/owner/sale/${saleId}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status: nextStatus })
+      })
+      await loadData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to update transaction status')
+    }
+  }
+
   // Filtered sales
   const filteredSales = useMemo(() => {
     if (!data?.sales) return []
@@ -512,17 +530,29 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
                         </td>
                         <td>
                           {s.status === 'VOIDED' ? (
-                            <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                              VOIDED
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSaleStatus(s.id, s.status)}
+                              className="badge"
+                              style={{ background: 'rgba(239, 68, 68, 0.18)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.35)', cursor: 'pointer', padding: '3px 8px' }}
+                              title="Click to restore this transaction as PAID"
+                            >
+                              VOIDED ↺
+                            </button>
                           ) : s.status === 'REFUNDED' ? (
                             <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
                               REFUNDED
                             </span>
                           ) : (
-                            <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSaleStatus(s.id, s.status)}
+                              className="badge badge-live"
+                              style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.25)', cursor: 'pointer', padding: '3px 8px' }}
+                              title="Click to mark this transaction as VOIDED"
+                            >
                               PAID
-                            </span>
+                            </button>
                           )}
                         </td>
                         <td>

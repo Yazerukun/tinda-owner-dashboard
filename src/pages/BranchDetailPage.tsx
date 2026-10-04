@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { request, formatPesos, formatDateTime } from '../api'
 import type { BranchDetailResponse } from '../types'
 import { exportSalesToCsv, exportShiftsToCsv, triggerHaptic } from '../utils'
+import { LowStockModal } from './LowStockModal'
 
 interface Props {
   storeId: string
@@ -18,6 +19,20 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
   const [salesSearch, setSalesSearch] = useState('')
   const [copiedId, setCopiedId] = useState(false)
   const [copiedRestock, setCopiedRestock] = useState(false)
+  const [showLowStockModal, setShowLowStockModal] = useState(false)
+  const [expandBannerItems, setExpandBannerItems] = useState(false)
+  const [restockSearch, setRestockSearch] = useState('')
+
+  const scrollToRestockTable = () => {
+    setActiveTab('restock')
+    setShowLowStockModal(false)
+    setTimeout(() => {
+      const el = document.getElementById('restock-table-section')
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 80)
+  }
 
   const loadData = async () => {
     try {
@@ -76,6 +91,13 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
 
   // Low stock list
   const lowStock = data?.lowStockItems || []
+
+  // Filtered low stock for table/search
+  const filteredLowStock = useMemo(() => {
+    if (!restockSearch.trim()) return lowStock
+    const q = restockSearch.toLowerCase()
+    return lowStock.filter((it) => it.product_name.toLowerCase().includes(q))
+  }, [lowStock, restockSearch])
 
   // Copy Restock Order for Supplier
   const handleCopyRestock = () => {
@@ -190,7 +212,7 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
       {/* Low Stock Urgent Radar Banner (if any item <= 10) */}
       {lowStock.length > 0 && (
         <div className="restock-banner">
-          <div>
+          <div style={{ flex: 1, minWidth: 260 }}>
             <div className="restock-title">
               <span>⚠️ Low Stock Alert</span>
               <span className="badge" style={{ background: 'rgba(244,63,94,0.2)', color: '#fda4af' }}>
@@ -198,7 +220,7 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
               </span>
             </div>
             <div className="restock-sub">
-              Items approaching critical zero balance. Order now to prevent stockouts.
+              Items approaching critical zero balance (≤ 10 units). Order now to prevent stockouts.
             </div>
           </div>
 
@@ -206,16 +228,68 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
             <button
               onClick={() => {
                 triggerHaptic('light')
-                setActiveTab('restock')
+                setShowLowStockModal(true)
               }}
               className="btn btn-secondary btn-sm"
+              title="Open Low Stock Items List Dialog"
+              style={{ fontWeight: 700, borderColor: '#fbbf24', color: '#fbbf24' }}
             >
-              View Items
+              👁️ View Items ({lowStock.length})
+            </button>
+            <button
+              onClick={() => {
+                triggerHaptic('light')
+                setExpandBannerItems(!expandBannerItems)
+              }}
+              className="btn btn-secondary btn-sm"
+              title="Toggle inline quick preview"
+            >
+              {expandBannerItems ? '▲ Hide Preview' : '▼ Quick Preview'}
             </button>
             <button onClick={handleCopyRestock} className="btn btn-primary btn-sm">
               {copiedRestock ? '✓ Copied for Supplier!' : '📋 Copy Supplier Order'}
             </button>
           </div>
+
+          {/* Expandable Inline Items Preview */}
+          {expandBannerItems && (
+            <div style={{ width: '100%', marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(245, 158, 11, 0.25)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
+                {lowStock.map((it, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      background: 'rgba(0, 0, 0, 0.35)',
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      border: '1px solid rgba(255, 255, 255, 0.06)'
+                    }}
+                  >
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>
+                      {it.product_name}
+                    </span>
+                    <span className="tabular-nums" style={{ fontSize: '0.85rem', fontWeight: 800, color: it.quantity_after <= 0 ? 'var(--accent-rose)' : '#fbbf24' }}>
+                      {it.quantity_after} {it.unit}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                <button
+                  onClick={() => {
+                    triggerHaptic('light')
+                    scrollToRestockTable()
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  Go to Full Low Stock Table Below ↓
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -454,14 +528,37 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
 
       {/* TAB 2: Low Stock Restock Radar */}
       {activeTab === 'restock' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Items with remaining stock quantity ≤ 10 units
+        <div id="restock-table-section">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Items with remaining stock quantity ≤ 10 units ({filteredLowStock.length} shown)
+              </div>
             </div>
-            <button onClick={handleCopyRestock} className="btn btn-primary btn-sm">
-              {copiedRestock ? '✓ Copied for Supplier!' : '📋 Copy Supplier Order'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {lowStock.length > 3 && (
+                <input
+                  type="text"
+                  className="input-field"
+                  style={{ padding: '5px 10px', fontSize: '0.78rem', width: 180 }}
+                  placeholder="Filter product..."
+                  value={restockSearch}
+                  onChange={(e) => setRestockSearch(e.target.value)}
+                />
+              )}
+              <button
+                onClick={() => {
+                  triggerHaptic('light')
+                  setShowLowStockModal(true)
+                }}
+                className="btn btn-secondary btn-sm"
+              >
+                📱 Dialog View
+              </button>
+              <button onClick={handleCopyRestock} className="btn btn-primary btn-sm">
+                {copiedRestock ? '✓ Copied for Supplier!' : '📋 Copy Supplier Order'}
+              </button>
+            </div>
           </div>
 
           <div className="table-glass-wrap">
@@ -477,14 +574,16 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
                   </tr>
                 </thead>
                 <tbody>
-                  {lowStock.length === 0 ? (
+                  {filteredLowStock.length === 0 ? (
                     <tr>
                       <td colSpan={4} style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-secondary)' }}>
-                        🎉 Great news! All inventory items have healthy stock levels above 10 units.
+                        {lowStock.length === 0
+                          ? '🎉 Great news! All inventory items have healthy stock levels above 10 units.'
+                          : `No items matching "${restockSearch}".`}
                       </td>
                     </tr>
                   ) : (
-                    lowStock.map((it, idx) => (
+                    filteredLowStock.map((it, idx) => (
                       <tr key={idx}>
                         <td style={{ fontWeight: 700, color: '#fff' }}>{it.product_name}</td>
                         <td className="tabular-nums" style={{ fontWeight: 800, fontSize: '1rem' }}>
@@ -689,6 +788,16 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
             </table>
           </div>
         </div>
+      )}
+
+      {/* Low Stock Items Full Modal Dialog */}
+      {showLowStockModal && (
+        <LowStockModal
+          branchName={data.store.branch_name}
+          items={lowStock}
+          onClose={() => setShowLowStockModal(false)}
+          onJumpToTable={scrollToRestockTable}
+        />
       )}
     </div>
   )

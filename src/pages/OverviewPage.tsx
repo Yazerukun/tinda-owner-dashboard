@@ -168,17 +168,25 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
         <div className="card">
           <div className="stat-header">
             <div className="stat-label">
-              <span>💎 Realized Gross Revenue</span>
+              <span>💎 Realized Net Sales</span>
             </div>
-            <span className="badge badge-live">Live Cloud Sync</span>
+            <span className="badge badge-live" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
+              100% POS Synced
+            </span>
           </div>
 
-          <div className="stat-value" style={{ color: '#38bdf8' }}>
+          <div className="stat-value" style={{ color: '#34d399' }}>
             {formatPesos(totalSales)}
           </div>
 
           <div className="stat-sub">
-            Across <strong>{data?.branches.length || 0}</strong> active branch POS terminals
+            Gross: <strong style={{ color: '#fff' }}>{formatPesos(data?.gross_sales_c ?? totalSales)}</strong>
+            {(data?.discount_c ?? 0) > 0 && (
+              <> · Disc: <strong style={{ color: '#f59e0b' }}>-{formatPesos(data?.discount_c ?? 0)}</strong></>
+            )}
+            {(data?.void_count ?? 0) > 0 && (
+              <> · <span style={{ color: '#f87171' }}>{data?.void_count} voids excluded</span></>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
@@ -370,8 +378,11 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
               </div>
 
               <div className="branch-revenue-box">
-                <div className="branch-revenue tabular-nums">
+                <div className="branch-revenue tabular-nums" style={{ color: '#34d399' }}>
                   {formatPesos(b.total_sales_c)}
+                </div>
+                <div style={{ fontSize: '0.70rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Net Sales
                 </div>
                 <div className="branch-view-cta">
                   <span>View Branch Analytics</span>

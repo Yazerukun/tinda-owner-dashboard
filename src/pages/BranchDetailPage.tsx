@@ -71,10 +71,22 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
     )
   }, [data?.sales, salesSearch])
 
-  // Calculated totals
+  // Calculated totals (strictly completed sales for Net Sales)
   const totalSalesC = useMemo(() => {
     if (!data?.sales) return 0
-    return data.sales.reduce((acc, s) => acc + (s.total_c || 0), 0)
+    return data.sales
+      .filter((s) => s.status === 'COMPLETED')
+      .reduce((acc, s) => acc + (s.total_c || 0), 0)
+  }, [data?.sales])
+
+  const completedSalesCount = useMemo(() => {
+    if (!data?.sales) return 0
+    return data.sales.filter((s) => s.status === 'COMPLETED').length
+  }, [data?.sales])
+
+  const voidSalesCount = useMemo(() => {
+    if (!data?.sales) return 0
+    return data.sales.filter((s) => s.status === 'VOIDED').length
   }, [data?.sales])
 
   // Daily Trend Max for scaling bars
@@ -326,13 +338,18 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
 
           <div className="branch-header-revenue">
             <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-              Period Revenue
+              Period Net Sales
             </div>
-            <div className="stat-value tabular-nums" style={{ color: '#38bdf8' }}>
+            <div className="stat-value tabular-nums" style={{ color: '#34d399' }}>
               {formatPesos(totalSalesC)}
             </div>
             <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-              {data.sales.length} customer receipts
+              {completedSalesCount} customer receipts
+              {voidSalesCount > 0 && (
+                <span style={{ color: '#f87171', marginLeft: 6 }}>
+                  ({voidSalesCount} voided excl.)
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -468,6 +485,7 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
                 <thead>
                   <tr>
                     <th>Receipt / Date</th>
+                    <th>Status</th>
                     <th>Cashier</th>
                     <th>Items Sold</th>
                     <th>Payment Method</th>
@@ -477,20 +495,35 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
                 <tbody>
                   {filteredSales.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-secondary)' }}>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-secondary)' }}>
                         No transactions found matching this query or date range.
                       </td>
                     </tr>
                   ) : (
                     filteredSales.map((s) => (
-                      <tr key={s.id}>
+                      <tr key={s.id} style={{ opacity: s.status === 'VOIDED' ? 0.65 : 1 }}>
                         <td>
-                          <div style={{ fontWeight: 700, color: '#fff' }} className="tabular-nums">
+                          <div style={{ fontWeight: 700, color: s.status === 'VOIDED' ? 'var(--text-secondary)' : '#fff' }} className="tabular-nums">
                             {s.transaction_no}
                           </div>
                           <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
                             {formatDateTime(s.sold_at)}
                           </div>
+                        </td>
+                        <td>
+                          {s.status === 'VOIDED' ? (
+                            <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                              VOIDED
+                            </span>
+                          ) : s.status === 'REFUNDED' ? (
+                            <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                              REFUNDED
+                            </span>
+                          ) : (
+                            <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                              PAID
+                            </span>
+                          )}
                         </td>
                         <td>
                           <div style={{ fontWeight: 600 }}>{s.cashier_name || 'Cashier'}</div>
@@ -513,8 +546,15 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
                             {s.utang_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-amber)' }}>Utang</span>}
                           </div>
                         </td>
-                        <td style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.95rem', color: '#fff' }} className="tabular-nums">
-                          {formatPesos(s.total_c)}
+                        <td style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.95rem' }} className="tabular-nums">
+                          {s.status === 'VOIDED' ? (
+                            <div>
+                              <span style={{ textDecoration: 'line-through', color: '#f87171' }}>{formatPesos(s.total_c)}</span>
+                              <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Excluded from Net</div>
+                            </div>
+                          ) : (
+                            <span style={{ color: '#34d399' }}>{formatPesos(s.total_c)}</span>
+                          )}
                         </td>
                       </tr>
                     ))

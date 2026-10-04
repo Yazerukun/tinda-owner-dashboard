@@ -4,6 +4,10 @@ export interface BranchSummary {
   last_sale_at: string | null
   last_sync_at: string | null
   total_sales_c: number
+  gross_sales_c?: number
+  discount_c?: number
+  void_count?: number
+  void_total_c?: number
   cash_c: number
   gcash_c: number
   maya_c: number
@@ -15,6 +19,10 @@ export interface OverallSummary {
   from: string
   to: string
   total_sales_c: number
+  gross_sales_c?: number
+  discount_c?: number
+  void_count?: number
+  void_total_c?: number
   cash_c: number
   gcash_c: number
   maya_c: number
@@ -28,6 +36,8 @@ export interface SaleRow {
   transaction_no: string
   cashier_name: string | null
   customer_name: string | null
+  subtotal_c?: number
+  discount_c?: number
   total_c: number
   cash_c: number
   gcash_c: number

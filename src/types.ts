@@ -110,3 +110,25 @@ export interface BranchDetailResponse {
   hourlyTotals?: HourlyTotalRow[]
   lowStockItems?: LowStockItemRow[]
 }
+
+export interface LiveAnnouncement {
+  id: string
+  title: string
+  message: string
+  author: string
+  version_target: string | null
+  is_pinned: number
+  created_at: string
+}
+
+export interface GlobalChatMessage {
+  id: string
+  store_id: string
+  store_name: string
+  sender_name: string
+  role: string
+  text: string
+  is_dev: number
+  is_vip: number
+  created_at: string
+}

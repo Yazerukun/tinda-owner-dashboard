@@ -66,7 +66,7 @@ export const LinkBranchModal: React.FC<Props> = ({ onClose, onLinked }) => {
         </div>
 
         <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
-          On your TINDA POS PC, open <strong>Settings → Cloud Sync Dashboard</strong>. Copy the generated Store ID and Sync Secret Key below to connect your store.
+          On your TINDA POS PC (v1.0.54), open the left sidebar: click <strong>Settings</strong> (under <strong>System</strong>) → <strong>Cloud Sync Dashboard</strong>. Copy the generated Store ID and secret Sync Key below to link this branch.
         </p>
 
         {error && (

@@ -227,6 +227,23 @@ body {
   }
 }
 
+.header-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .header-action-btn {
+    padding: 4px 7px;
+    font-size: 0.68rem;
+  }
+}
+
 /* Pulsing Live Beacon */
 .live-beacon {
   display: flex;

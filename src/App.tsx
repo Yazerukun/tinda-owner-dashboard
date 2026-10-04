@@ -3,6 +3,10 @@ import { getToken, clearToken } from './api'
 import { LoginPage } from './pages/LoginPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { BranchDetailPage } from './pages/BranchDetailPage'
+import { AnnouncementBanner } from './pages/AnnouncementBanner'
+import { DownloadModal } from './pages/DownloadModal'
+import { CommunityChatModal } from './pages/CommunityChatModal'
+import { triggerHaptic } from './utils'
 import './styles.css'
 
 function getLocalToday(): string {
@@ -16,12 +20,15 @@ function getLocalToday(): string {
 export const App: React.FC = () => {
   const [token, setSessionToken] = useState<string | null>(getToken())
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null)
+  const [showDownloadModal, setShowDownloadModal] = useState(false)
+  const [showChatModal, setShowChatModal] = useState(false)
 
   const today = getLocalToday()
   const [fromDate, setFromDate] = useState(today)
   const [toDate, setToDate] = useState(today)
 
   const handleLogout = () => {
+    triggerHaptic('light')
     clearToken()
     setSessionToken(null)
     setSelectedBranch(null)
@@ -44,11 +51,33 @@ export const App: React.FC = () => {
               <span>TINDA POS</span>
               <span className="brand-badge">Cloud</span>
             </div>
-            <div className="brand-subtext">Executive Sales Telemetry</div>
+            <div className="brand-subtext">Executive Sales Telemetry • v1.0.54</div>
           </div>
         </div>
 
         <div className="header-right">
+          <button
+            onClick={() => {
+              triggerHaptic('light')
+              setShowDownloadModal(true)
+            }}
+            className="btn btn-secondary btn-sm header-action-btn"
+            title="Download TINDA POS Desktop Release"
+          >
+            📥 v1.0.54 App
+          </button>
+
+          <button
+            onClick={() => {
+              triggerHaptic('light')
+              setShowChatModal(true)
+            }}
+            className="btn btn-secondary btn-sm header-action-btn"
+            title="Live Store Broadcast & Cashier Chat"
+          >
+            💬 Broadcast
+          </button>
+
           <div className="live-beacon">
             <span className="beacon-dot" />
             <span>Connected</span>
@@ -59,6 +88,9 @@ export const App: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {/* Live System Announcements Banner */}
+      <AnnouncementBanner onOpenDownload={() => setShowDownloadModal(true)} />
 
       {/* Main Content Area */}
       <main>
@@ -81,6 +113,14 @@ export const App: React.FC = () => {
           />
         )}
       </main>
+
+      {showDownloadModal && (
+        <DownloadModal onClose={() => setShowDownloadModal(false)} />
+      )}
+
+      {showChatModal && (
+        <CommunityChatModal onClose={() => setShowChatModal(false)} />
+      )}
     </div>
   )
 }

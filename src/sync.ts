@@ -69,6 +69,11 @@ export async function syncSale(db: D1Database, storeId: string, p: SalePayload):
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(store_id, local_sale_id) DO UPDATE SET
        status = excluded.status,
+       total_c = excluded.total_c,
+       cash_c = excluded.cash_c,
+       gcash_c = excluded.gcash_c,
+       maya_c = excluded.maya_c,
+       utang_c = excluded.utang_c,
        synced_at = datetime('now')`
   ).bind(
     storeId, p.local_sale_id, p.transaction_no, p.cashier_name ?? null,

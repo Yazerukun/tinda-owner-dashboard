@@ -71,11 +71,30 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
     )
   }, [data?.sales, salesSearch])
 
-  // Calculated totals
-  const totalSalesC = useMemo(() => {
-    if (!data?.sales) return 0
-    return data.sales.reduce((acc, s) => acc + (s.total_c || 0), 0)
+  // Filter out voided transactions for financial totals & calculations
+  const activeSales = useMemo(() => {
+    if (!data?.sales) return []
+    return data.sales.filter((s) => s.status !== 'VOIDED')
   }, [data?.sales])
+
+  // Calculated totals (Active Sales Only - VOIDED excluded)
+  const totalSalesC = useMemo(() => {
+    return activeSales.reduce((acc, s) => acc + (s.total_c || 0), 0)
+  }, [activeSales])
+
+  // Payment method breakdown (Active Sales Only)
+  const tenderMetrics = useMemo(() => {
+    return activeSales.reduce(
+      (acc, s) => {
+        acc.cash += s.cash_c || 0
+        acc.gcash += s.gcash_c || 0
+        acc.maya += s.maya_c || 0
+        acc.utang += s.utang_c || 0
+        return acc
+      },
+      { cash: 0, gcash: 0, maya: 0, utang: 0 }
+    )
+  }, [activeSales])
 
   // Daily Trend Max for scaling bars
   const maxDailyC = useMemo(() => {
@@ -332,7 +351,27 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
               {formatPesos(totalSalesC)}
             </div>
             <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-              {data.sales.length} customer receipts
+              {activeSales.length} active receipts {data.sales.length > activeSales.length ? `(${data.sales.length - activeSales.length} voided)` : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginTop: 6 }}>
+              <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: 'var(--accent-emerald)' }}>
+                Cash: {formatPesos(tenderMetrics.cash)}
+              </span>
+              {tenderMetrics.gcash > 0 && (
+                <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)' }}>
+                  GCash: {formatPesos(tenderMetrics.gcash)}
+                </span>
+              )}
+              {tenderMetrics.maya > 0 && (
+                <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: '#34d399' }}>
+                  Maya: {formatPesos(tenderMetrics.maya)}
+                </span>
+              )}
+              {tenderMetrics.utang > 0 && (
+                <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: 'var(--accent-amber)' }}>
+                  Credit: {formatPesos(tenderMetrics.utang)}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -482,42 +521,58 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
                       </td>
                     </tr>
                   ) : (
-                    filteredSales.map((s) => (
-                      <tr key={s.id}>
-                        <td>
-                          <div style={{ fontWeight: 700, color: '#fff' }} className="tabular-nums">
-                            {s.transaction_no}
-                          </div>
-                          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                            {formatDateTime(s.sold_at)}
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>{s.cashier_name || 'Cashier'}</div>
-                          {s.customer_name && (
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                              Cust: {s.customer_name}
+                    filteredSales.map((s) => {
+                      const isVoided = s.status === 'VOIDED'
+                      return (
+                        <tr key={s.id} style={isVoided ? { opacity: 0.55, background: 'rgba(244,63,94,0.05)' } : undefined}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontWeight: 700, color: isVoided ? '#94a3b8' : '#fff', textDecoration: isVoided ? 'line-through' : 'none' }} className="tabular-nums">
+                                {s.transaction_no}
+                              </span>
+                              {isVoided && (
+                                <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.25)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.4)', fontSize: '0.65rem', padding: '1px 5px', fontWeight: 800 }}>
+                                  VOIDED
+                                </span>
+                              )}
                             </div>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.items_summary || ''}>
-                            {s.items_summary || '—'}
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {s.cash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-emerald)' }}>Cash</span>}
-                            {s.gcash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-cyan)' }}>GCash</span>}
-                            {s.maya_c > 0 && <span className="badge badge-muted" style={{ color: '#34d399' }}>Maya</span>}
-                            {s.utang_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-amber)' }}>Utang</span>}
-                          </div>
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.95rem', color: '#fff' }} className="tabular-nums">
-                          {formatPesos(s.total_c)}
-                        </td>
-                      </tr>
-                    ))
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                              {formatDateTime(s.sold_at)}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{s.cashier_name || 'Cashier'}</div>
+                            {s.customer_name && (
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                                Cust: {s.customer_name}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isVoided ? 'line-through' : 'none' }} title={s.items_summary || ''}>
+                              {s.items_summary || '—'}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {isVoided ? (
+                                <span className="badge badge-muted" style={{ color: '#f87171' }}>Reversed</span>
+                              ) : (
+                                <>
+                                  {s.cash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-emerald)' }}>Cash</span>}
+                                  {s.gcash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-cyan)' }}>GCash</span>}
+                                  {s.maya_c > 0 && <span className="badge badge-muted" style={{ color: '#34d399' }}>Maya</span>}
+                                  {s.utang_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-amber)' }}>Utang</span>}
+                                </>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.95rem', color: isVoided ? '#94a3b8' : '#fff', textDecoration: isVoided ? 'line-through' : 'none' }} className="tabular-nums">
+                            {formatPesos(s.total_c)}
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>

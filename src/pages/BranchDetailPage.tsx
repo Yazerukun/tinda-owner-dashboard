@@ -58,24 +58,6 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
     setTimeout(() => setCopiedId(false), 2000)
   }
 
-  const handleToggleSaleStatus = async (saleId: number, currentStatus: string) => {
-    const nextStatus = currentStatus === 'VOIDED' ? 'COMPLETED' : 'VOIDED'
-    const actionLabel = nextStatus === 'VOIDED' ? 'Mark as VOIDED' : 'Mark as PAID'
-    if (!window.confirm(`${actionLabel} for this transaction? This will update your Net Sales immediately.`)) {
-      return
-    }
-    try {
-      triggerHaptic('medium')
-      await request(`/api/owner/sale/${saleId}/status`, {
-        method: 'POST',
-        body: JSON.stringify({ status: nextStatus })
-      })
-      await loadData()
-    } catch (err: any) {
-      alert(err.message || 'Failed to update transaction status')
-    }
-  }
-
   // Filtered sales
   const filteredSales = useMemo(() => {
     if (!data?.sales) return []
@@ -89,23 +71,30 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
     )
   }, [data?.sales, salesSearch])
 
-  // Calculated totals (strictly completed sales for Net Sales)
+  // Filter out voided transactions for financial totals & calculations
+  const activeSales = useMemo(() => {
+    if (!data?.sales) return []
+    return data.sales.filter((s) => s.status !== 'VOIDED')
+  }, [data?.sales])
+
+  // Calculated totals (Active Sales Only - VOIDED excluded)
   const totalSalesC = useMemo(() => {
-    if (!data?.sales) return 0
-    return data.sales
-      .filter((s) => s.status === 'COMPLETED')
-      .reduce((acc, s) => acc + (s.total_c || 0), 0)
-  }, [data?.sales])
+    return activeSales.reduce((acc, s) => acc + (s.total_c || 0), 0)
+  }, [activeSales])
 
-  const completedSalesCount = useMemo(() => {
-    if (!data?.sales) return 0
-    return data.sales.filter((s) => s.status === 'COMPLETED').length
-  }, [data?.sales])
-
-  const voidSalesCount = useMemo(() => {
-    if (!data?.sales) return 0
-    return data.sales.filter((s) => s.status === 'VOIDED').length
-  }, [data?.sales])
+  // Payment method breakdown (Active Sales Only)
+  const tenderMetrics = useMemo(() => {
+    return activeSales.reduce(
+      (acc, s) => {
+        acc.cash += s.cash_c || 0
+        acc.gcash += s.gcash_c || 0
+        acc.maya += s.maya_c || 0
+        acc.utang += s.utang_c || 0
+        return acc
+      },
+      { cash: 0, gcash: 0, maya: 0, utang: 0 }
+    )
+  }, [activeSales])
 
   // Daily Trend Max for scaling bars
   const maxDailyC = useMemo(() => {
@@ -356,16 +345,31 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
 
           <div className="branch-header-revenue">
             <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-              Period Net Sales
+              Period Revenue
             </div>
-            <div className="stat-value tabular-nums" style={{ color: '#34d399' }}>
+            <div className="stat-value tabular-nums" style={{ color: '#38bdf8' }}>
               {formatPesos(totalSalesC)}
             </div>
             <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-              {completedSalesCount} customer receipts
-              {voidSalesCount > 0 && (
-                <span style={{ color: '#f87171', marginLeft: 6 }}>
-                  ({voidSalesCount} voided excl.)
+              {activeSales.length} active receipts {data.sales.length > activeSales.length ? `(${data.sales.length - activeSales.length} voided)` : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginTop: 6 }}>
+              <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: 'var(--accent-emerald)' }}>
+                Cash: {formatPesos(tenderMetrics.cash)}
+              </span>
+              {tenderMetrics.gcash > 0 && (
+                <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)' }}>
+                  GCash: {formatPesos(tenderMetrics.gcash)}
+                </span>
+              )}
+              {tenderMetrics.maya > 0 && (
+                <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: '#34d399' }}>
+                  Maya: {formatPesos(tenderMetrics.maya)}
+                </span>
+              )}
+              {tenderMetrics.utang > 0 && (
+                <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: 'var(--accent-amber)' }}>
+                  Credit: {formatPesos(tenderMetrics.utang)}
                 </span>
               )}
             </div>
@@ -503,7 +507,6 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
                 <thead>
                   <tr>
                     <th>Receipt / Date</th>
-                    <th>Status</th>
                     <th>Cashier</th>
                     <th>Items Sold</th>
                     <th>Payment Method</th>
@@ -513,81 +516,63 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
                 <tbody>
                   {filteredSales.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-secondary)' }}>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-secondary)' }}>
                         No transactions found matching this query or date range.
                       </td>
                     </tr>
                   ) : (
-                    filteredSales.map((s) => (
-                      <tr key={s.id} style={{ opacity: s.status === 'VOIDED' ? 0.65 : 1 }}>
-                        <td>
-                          <div style={{ fontWeight: 700, color: s.status === 'VOIDED' ? 'var(--text-secondary)' : '#fff' }} className="tabular-nums">
-                            {s.transaction_no}
-                          </div>
-                          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                            {formatDateTime(s.sold_at)}
-                          </div>
-                        </td>
-                        <td>
-                          {s.status === 'VOIDED' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleSaleStatus(s.id, s.status)}
-                              className="badge"
-                              style={{ background: 'rgba(239, 68, 68, 0.18)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.35)', cursor: 'pointer', padding: '3px 8px' }}
-                              title="Click to restore this transaction as PAID"
-                            >
-                              VOIDED ↺
-                            </button>
-                          ) : s.status === 'REFUNDED' ? (
-                            <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                              REFUNDED
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleSaleStatus(s.id, s.status)}
-                              className="badge badge-live"
-                              style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.25)', cursor: 'pointer', padding: '3px 8px' }}
-                              title="Click to mark this transaction as VOIDED"
-                            >
-                              PAID
-                            </button>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>{s.cashier_name || 'Cashier'}</div>
-                          {s.customer_name && (
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                              Cust: {s.customer_name}
+                    filteredSales.map((s) => {
+                      const isVoided = s.status === 'VOIDED'
+                      return (
+                        <tr key={s.id} style={isVoided ? { opacity: 0.55, background: 'rgba(244,63,94,0.05)' } : undefined}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontWeight: 700, color: isVoided ? '#94a3b8' : '#fff', textDecoration: isVoided ? 'line-through' : 'none' }} className="tabular-nums">
+                                {s.transaction_no}
+                              </span>
+                              {isVoided && (
+                                <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.25)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.4)', fontSize: '0.65rem', padding: '1px 5px', fontWeight: 800 }}>
+                                  VOIDED
+                                </span>
+                              )}
                             </div>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.items_summary || ''}>
-                            {s.items_summary || '—'}
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {s.cash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-emerald)' }}>Cash</span>}
-                            {s.gcash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-cyan)' }}>GCash</span>}
-                            {s.maya_c > 0 && <span className="badge badge-muted" style={{ color: '#34d399' }}>Maya</span>}
-                            {s.utang_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-amber)' }}>Utang</span>}
-                          </div>
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.95rem' }} className="tabular-nums">
-                          {s.status === 'VOIDED' ? (
-                            <div>
-                              <span style={{ textDecoration: 'line-through', color: '#f87171' }}>{formatPesos(s.total_c)}</span>
-                              <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Excluded from Net</div>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                              {formatDateTime(s.sold_at)}
                             </div>
-                          ) : (
-                            <span style={{ color: '#34d399' }}>{formatPesos(s.total_c)}</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{s.cashier_name || 'Cashier'}</div>
+                            {s.customer_name && (
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                                Cust: {s.customer_name}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isVoided ? 'line-through' : 'none' }} title={s.items_summary || ''}>
+                              {s.items_summary || '—'}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {isVoided ? (
+                                <span className="badge badge-muted" style={{ color: '#f87171' }}>Reversed</span>
+                              ) : (
+                                <>
+                                  {s.cash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-emerald)' }}>Cash</span>}
+                                  {s.gcash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-cyan)' }}>GCash</span>}
+                                  {s.maya_c > 0 && <span className="badge badge-muted" style={{ color: '#34d399' }}>Maya</span>}
+                                  {s.utang_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-amber)' }}>Utang</span>}
+                                </>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.95rem', color: isVoided ? '#94a3b8' : '#fff', textDecoration: isVoided ? 'line-through' : 'none' }} className="tabular-nums">
+                            {formatPesos(s.total_c)}
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>

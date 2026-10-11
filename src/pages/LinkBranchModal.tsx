@@ -12,18 +12,88 @@ export const LinkBranchModal: React.FC<Props> = ({ onClose, onLinked }) => {
   const [branchName, setBranchName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const handleStoreIdChange = (val: string) => {
+    setError(null)
+    setNotice(null)
+    const clean = val.trim()
+
+    // 1-Click Link Code auto-splitter (uuid:tinda_xxx or uuid|tinda_xxx)
+    if (clean.includes(':') || clean.includes('|')) {
+      const parts = clean.split(/[:|]/)
+      if (parts.length >= 2) {
+        setStoreId(parts[0].trim())
+        setSyncKey(parts[1].trim())
+        setNotice('✅ 1-Click Link Code detected! Store ID and Sync Key filled automatically.')
+        return
+      }
+    }
+
+    // Auto-swap if user pastes secret sync key (starts with tinda_) into Store ID box
+    if (clean.toLowerCase().startsWith('tinda_')) {
+      setSyncKey(clean)
+      setNotice('💡 Detected Sync Key! Placed in the secret Sync Key field below.')
+      return
+    }
+
+    setStoreId(val)
+  }
+
+  const handleSyncKeyChange = (val: string) => {
+    setError(null)
+    setNotice(null)
+    const clean = val.trim()
+
+    // 1-Click Link Code auto-splitter
+    if (clean.includes(':') || clean.includes('|')) {
+      const parts = clean.split(/[:|]/)
+      if (parts.length >= 2) {
+        setStoreId(parts[0].trim())
+        setSyncKey(parts[1].trim())
+        setNotice('✅ 1-Click Link Code detected! Store ID and Sync Key filled automatically.')
+        return
+      }
+    }
+
+    // Detect UUID in sync key box when storeId is empty
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean) && !storeId) {
+      setStoreId(clean)
+      setNotice('💡 Detected Store UUID! Placed in Store ID field above.')
+      return
+    }
+
+    setSyncKey(val)
+  }
 
   const handleLink = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    setNotice(null)
     setLoading(true)
+
+    let finalStoreId = storeId.trim()
+    let finalSyncKey = syncKey.trim()
+
+    // Safeguard: swap if user reversed them
+    if (finalStoreId.toLowerCase().startsWith('tinda_') && !finalSyncKey.toLowerCase().startsWith('tinda_')) {
+      const temp = finalStoreId
+      finalStoreId = finalSyncKey
+      finalSyncKey = temp
+    }
+
+    if (!finalStoreId || !finalSyncKey) {
+      setError('Please provide both Store ID and Sync Key.')
+      setLoading(false)
+      return
+    }
 
     try {
       await request('/api/owner/branch/link', {
         method: 'POST',
         body: JSON.stringify({
-          store_id: storeId.trim().toLowerCase(),
-          sync_key: syncKey.trim(),
+          store_id: finalStoreId.toLowerCase(),
+          sync_key: finalSyncKey,
           branch_name: branchName.trim() || undefined
         })
       })
@@ -65,9 +135,25 @@ export const LinkBranchModal: React.FC<Props> = ({ onClose, onLinked }) => {
           </button>
         </div>
 
-        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
-          On your TINDA POS PC (v1.0.54), open the left sidebar: click <strong>Settings</strong> (under <strong>System</strong>) → <strong>Cloud Sync Dashboard</strong>. Copy the generated Store ID and secret Sync Key below to link this branch.
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
+          On your TINDA POS PC, open <strong>Settings</strong> → <strong>Live Cloud Sync Integration</strong>. Click <strong>Copy 1-Click Link Code</strong> (or copy Store ID & Sync Key separately) and paste below.
         </p>
+
+        {notice && (
+          <div
+            style={{
+              background: 'rgba(14, 165, 233, 0.12)',
+              border: '1px solid rgba(14, 165, 233, 0.3)',
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-md)',
+              fontSize: '0.8rem',
+              color: '#7dd3fc',
+              marginBottom: 16
+            }}
+          >
+            {notice}
+          </div>
+        )}
 
         {error && (
           <div
@@ -98,13 +184,13 @@ export const LinkBranchModal: React.FC<Props> = ({ onClose, onLinked }) => {
           </div>
 
           <div className="input-group">
-            <label className="input-label">Store ID (UUID)</label>
+            <label className="input-label">Store ID (or Paste 1-Click Link Code here)</label>
             <input
               type="text"
               required
               className="input-field"
               value={storeId}
-              onChange={(e) => setStoreId(e.target.value)}
+              onChange={(e) => handleStoreIdChange(e.target.value)}
               placeholder="e.g. 07c9823f-3f3a-41a3-b8b7-74c692931bb8"
               autoCapitalize="none"
               autoCorrect="off"
@@ -112,13 +198,13 @@ export const LinkBranchModal: React.FC<Props> = ({ onClose, onLinked }) => {
           </div>
 
           <div className="input-group">
-            <label className="input-label">Sync Secret Key</label>
+            <label className="input-label">Branch Sync Key (Secret Token)</label>
             <input
               type="text"
               required
               className="input-field"
               value={syncKey}
-              onChange={(e) => setSyncKey(e.target.value)}
+              onChange={(e) => handleSyncKeyChange(e.target.value)}
               placeholder="e.g. tinda_9a295f3d5047..."
               autoCapitalize="none"
               autoCorrect="off"

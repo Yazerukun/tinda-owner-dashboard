@@ -190,6 +190,10 @@ export const App: React.FC = () => {
             storeId={selectedBranch}
             from={fromDate}
             to={toDate}
+            onDateChange={(f, t) => {
+              setFromDate(f)
+              setToDate(t)
+            }}
             onBack={() => setSelectedBranch(null)}
           />
         ) : (

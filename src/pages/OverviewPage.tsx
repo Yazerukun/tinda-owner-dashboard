@@ -49,9 +49,19 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
     return () => clearInterval(timer)
   }, [from, to])
 
-  const setPreset = (preset: 'today' | 'yesterday' | '7days' | 'month') => {
+  const [customFrom, setCustomFrom] = useState(from)
+  const [customTo, setCustomTo] = useState(to)
+
+  useEffect(() => {
+    setCustomFrom(from)
+    setCustomTo(to)
+  }, [from, to])
+
+  const setPreset = (preset: 'today' | 'yesterday' | '7days' | 'month' | 'custom') => {
     triggerHaptic('light')
     setActivePreset(preset)
+    if (preset === 'custom') return
+
     const now = new Date()
     const fmt = (d: Date) => {
       const year = d.getFullYear()
@@ -76,6 +86,12 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
       const start = new Date(now.getFullYear(), now.getMonth(), 1)
       onDateChange(fmt(start), fmt(now))
     }
+  }
+
+  const handleApplyCustom = () => {
+    if (!customFrom || !customTo || customFrom > customTo) return
+    triggerHaptic('light')
+    onDateChange(customFrom, customTo)
   }
 
   // Filter branches by search query
@@ -133,6 +149,12 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
           >
             This Month
           </button>
+          <button
+            className={`segment-btn ${activePreset === 'custom' ? 'active' : ''}`}
+            onClick={() => setPreset('custom')}
+          >
+            📅 Custom
+          </button>
         </div>
 
         <div className="filter-actions">
@@ -161,6 +183,42 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
           </button>
         </div>
       </div>
+
+      {/* Custom Date Range Strip */}
+      {activePreset === 'custom' && (
+        <div className="custom-date-strip">
+          <div className="custom-date-group">
+            <label className="custom-date-label">From:</label>
+            <input
+              type="date"
+              value={customFrom}
+              max={customTo}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="custom-date-input"
+            />
+          </div>
+          <div className="custom-date-group">
+            <label className="custom-date-label">To:</label>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="custom-date-input"
+            />
+          </div>
+          <button
+            onClick={handleApplyCustom}
+            className="btn btn-primary btn-sm"
+            disabled={!customFrom || !customTo || customFrom > customTo}
+          >
+            Apply Range
+          </button>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
+            Active: <strong style={{ color: '#fff' }}>{from}</strong> to <strong style={{ color: '#fff' }}>{to}</strong>
+          </span>
+        </div>
+      )}
 
       {/* Bento Hero Grid */}
       <div className="bento-hero-grid">

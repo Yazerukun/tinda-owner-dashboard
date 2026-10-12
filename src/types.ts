@@ -112,6 +112,18 @@ export interface BranchDetailResponse {
     last_sale_at: string | null
     last_sync_at: string | null
   }
+  periodFinancials?: {
+    total_sales_c: number
+    gross_sales_c?: number
+    discount_c?: number
+    cash_c: number
+    gcash_c: number
+    maya_c: number
+    utang_c: number
+    transaction_count: number
+    void_count: number
+    void_total_c: number
+  }
   sales: SaleRow[]
   stockMovements: StockMovementRow[]
   shifts: ShiftRow[]

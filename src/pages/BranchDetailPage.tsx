@@ -8,10 +8,11 @@ interface Props {
   storeId: string
   from: string
   to: string
+  onDateChange: (from: string, to: string) => void
   onBack: () => void
 }
 
-export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack }) => {
+export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateChange, onBack }) => {
   const [data, setData] = useState<BranchDetailResponse | null>(null)
   const [activeTab, setActiveTab] = useState<'sales' | 'stock' | 'restock' | 'items' | 'shifts'>('sales')
   const [loading, setLoading] = useState(true)
@@ -22,6 +23,51 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
   const [showLowStockModal, setShowLowStockModal] = useState(false)
   const [expandBannerItems, setExpandBannerItems] = useState(false)
   const [restockSearch, setRestockSearch] = useState('')
+  const [activePreset, setActivePreset] = useState<'today' | 'yesterday' | '7days' | 'month' | 'custom'>('today')
+  const [customFrom, setCustomFrom] = useState(from)
+  const [customTo, setCustomTo] = useState(to)
+
+  useEffect(() => {
+    setCustomFrom(from)
+    setCustomTo(to)
+  }, [from, to])
+
+  const setPreset = (preset: 'today' | 'yesterday' | '7days' | 'month' | 'custom') => {
+    triggerHaptic('light')
+    setActivePreset(preset)
+    if (preset === 'custom') return
+
+    const now = new Date()
+    const fmt = (d: Date) => {
+      const year = d.getFullYear()
+      const month = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
+    if (preset === 'today') {
+      const t = fmt(now)
+      onDateChange(t, t)
+    } else if (preset === 'yesterday') {
+      const y = new Date(now)
+      y.setDate(y.getDate() - 1)
+      const t = fmt(y)
+      onDateChange(t, t)
+    } else if (preset === '7days') {
+      const past = new Date(now)
+      past.setDate(past.getDate() - 6)
+      onDateChange(fmt(past), fmt(now))
+    } else if (preset === 'month') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1)
+      onDateChange(fmt(start), fmt(now))
+    }
+  }
+
+  const handleApplyCustom = () => {
+    if (!customFrom || !customTo || customFrom > customTo) return
+    triggerHaptic('light')
+    onDateChange(customFrom, customTo)
+  }
 
   const scrollToRestockTable = () => {
     setActiveTab('restock')
@@ -77,13 +123,27 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
     return data.sales.filter((s) => s.status !== 'VOIDED')
   }, [data?.sales])
 
-  // Calculated totals (Active Sales Only - VOIDED excluded)
+  // Calculated totals: Exact Period Financials from D1 (immune to LIMIT 100 truncation)
   const totalSalesC = useMemo(() => {
+    if (data?.periodFinancials && data.periodFinancials.total_sales_c !== undefined) {
+      return data.periodFinancials.total_sales_c
+    }
+    if (data?.dailyTotals && data.dailyTotals.length > 0) {
+      return data.dailyTotals.reduce((acc, d) => acc + d.total_c, 0)
+    }
     return activeSales.reduce((acc, s) => acc + (s.total_c || 0), 0)
-  }, [activeSales])
+  }, [data?.periodFinancials, data?.dailyTotals, activeSales])
 
-  // Payment method breakdown (Active Sales Only)
+  // Payment method breakdown: Exact Period Financials from D1
   const tenderMetrics = useMemo(() => {
+    if (data?.periodFinancials) {
+      return {
+        cash: data.periodFinancials.cash_c,
+        gcash: data.periodFinancials.gcash_c,
+        maya: data.periodFinancials.maya_c,
+        utang: data.periodFinancials.utang_c
+      }
+    }
     return activeSales.reduce(
       (acc, s) => {
         acc.cash += s.cash_c || 0
@@ -94,7 +154,7 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
       },
       { cash: 0, gcash: 0, maya: 0, utang: 0 }
     )
-  }, [activeSales])
+  }, [data?.periodFinancials, activeSales])
 
   // Daily Trend Max for scaling bars
   const maxDailyC = useMemo(() => {
@@ -227,6 +287,82 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onBack })
           </button>
         </div>
       </div>
+
+      {/* Cupertino Date Filter Bar */}
+      <div className="filter-bar" style={{ marginTop: -10 }}>
+        <div className="segmented-control">
+          <button
+            className={`segment-btn ${activePreset === 'today' ? 'active' : ''}`}
+            onClick={() => setPreset('today')}
+          >
+            Today
+          </button>
+          <button
+            className={`segment-btn ${activePreset === 'yesterday' ? 'active' : ''}`}
+            onClick={() => setPreset('yesterday')}
+          >
+            Yesterday
+          </button>
+          <button
+            className={`segment-btn ${activePreset === '7days' ? 'active' : ''}`}
+            onClick={() => setPreset('7days')}
+          >
+            Last 7 Days
+          </button>
+          <button
+            className={`segment-btn ${activePreset === 'month' ? 'active' : ''}`}
+            onClick={() => setPreset('month')}
+          >
+            This Month
+          </button>
+          <button
+            className={`segment-btn ${activePreset === 'custom' ? 'active' : ''}`}
+            onClick={() => setPreset('custom')}
+          >
+            📅 Custom
+          </button>
+        </div>
+
+        <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+          Active Period: <strong style={{ color: '#fff' }}>{from}</strong> to <strong style={{ color: '#fff' }}>{to}</strong>
+        </div>
+      </div>
+
+      {/* Custom Date Range Strip */}
+      {activePreset === 'custom' && (
+        <div className="custom-date-strip">
+          <div className="custom-date-group">
+            <label className="custom-date-label">From:</label>
+            <input
+              type="date"
+              value={customFrom}
+              max={customTo}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="custom-date-input"
+            />
+          </div>
+          <div className="custom-date-group">
+            <label className="custom-date-label">To:</label>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="custom-date-input"
+            />
+          </div>
+          <button
+            onClick={handleApplyCustom}
+            className="btn btn-primary btn-sm"
+            disabled={!customFrom || !customTo || customFrom > customTo}
+          >
+            Apply Range
+          </button>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
+            Historical Range: <strong style={{ color: '#fff' }}>{from}</strong> to <strong style={{ color: '#fff' }}>{to}</strong>
+          </span>
+        </div>
+      )}
 
       {/* Low Stock Urgent Radar Banner (if any item <= 10) */}
       {lowStock.length > 0 && (

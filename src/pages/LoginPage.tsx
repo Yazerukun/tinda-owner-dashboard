@@ -15,6 +15,24 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess }) => {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
+  const [pendingStore] = useState<{ sid: string; key: string; name: string } | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const sid = params.get('sid') || params.get('store_id')
+      const key = params.get('key') || params.get('sync_key')
+      const name = params.get('name') || params.get('branch_name') || 'Store Branch'
+      if (sid && key) {
+        const p = { sid: sid.trim().toLowerCase(), key: key.trim(), name: name.trim() }
+        sessionStorage.setItem('tinda_pending_link', JSON.stringify(p))
+        return p
+      }
+      const saved = sessionStorage.getItem('tinda_pending_link')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -69,6 +87,28 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess }) => {
             Owner Cloud Executive
           </div>
         </div>
+
+        {pendingStore && (
+          <div
+            style={{
+              background: 'rgba(14, 165, 233, 0.12)',
+              border: '1px solid rgba(14, 165, 233, 0.4)',
+              borderRadius: 14,
+              padding: '12px 16px',
+              marginBottom: 20,
+              textAlign: 'center',
+              boxShadow: '0 4px 16px rgba(14, 165, 233, 0.15)'
+            }}
+          >
+            <span style={{ fontSize: 24, display: 'block', marginBottom: 4 }}>📲</span>
+            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#38bdf8' }}>
+              Auto-Pairing: &quot;{pendingStore.name}&quot;
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+              Log in or register below to instantly connect this store terminal to your account!
+            </div>
+          </div>
+        )}
 
         {/* Tab switch between Sign In and Setup */}
         <div className="segmented-control" style={{ width: '100%', display: 'flex', marginBottom: 20 }}>

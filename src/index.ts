@@ -48,7 +48,7 @@ const err = (c: any, status: number, message: string, code = 'ERROR') =>
 
 function dayQ(v: string | undefined): string {
   if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v
-  return new Date().toISOString().slice(0, 10)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date())
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +215,7 @@ app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
   const to = dayQ(c.req.query('to'))
   const detail = await getBranchDetail(c.env.DB, ownerId, storeId, from, to)
   if (!detail) return err(c, 404, 'Branch not found or not linked to your account.', 'NOT_FOUND')
-  return c.json({ ok: true, from, to, ...detail })
+  return c.json({ ok: true, ...detail })
 })
 
 /** POST /api/sync/ping & /api/sync/register — ping & auto-register from TINDA-POS desktop */
@@ -277,6 +277,10 @@ app.post('/api/owner/branch/link', requireOwner, async (c) => {
        WHERE LOWER(id) = ?`
     ).bind(ownerId, storeId).run()
 
+    await c.env.DB.prepare(
+      `INSERT OR IGNORE INTO store_owners (store_id, owner_user_id) VALUES (?, ?)`
+    ).bind(storeId, ownerId).run()
+
     return c.json({ ok: true, message: `Branch "${existingStore.branch_name}" linked successfully!` })
   } else {
     // Store does not exist in Cloudflare D1 yet!
@@ -286,6 +290,10 @@ app.post('/api/owner/branch/link', requireOwner, async (c) => {
        VALUES (?, ?, ?, ?, (SELECT MAX(sold_at) FROM sales WHERE LOWER(store_id) = LOWER(?)), datetime('now'))`
     ).bind(storeId, branchName, expectedKeyHash, ownerId, storeId).run()
 
+    await c.env.DB.prepare(
+      `INSERT OR IGNORE INTO store_owners (store_id, owner_user_id) VALUES (?, ?)`
+    ).bind(storeId, ownerId).run()
+
     return c.json({ ok: true, message: `Branch "${branchName}" registered and linked to your account!` })
   }
 })
@@ -294,6 +302,9 @@ app.post('/api/owner/branch/link', requireOwner, async (c) => {
 app.delete('/api/owner/branch/:store_id', requireOwner, async (c) => {
   const ownerId: number = c.get('owner_id')
   const storeId = String(c.req.param('store_id') ?? '').trim().toLowerCase()
+  await c.env.DB.prepare(
+    `DELETE FROM store_owners WHERE LOWER(store_id) = ? AND owner_user_id = ?`
+  ).bind(storeId, ownerId).run()
   await c.env.DB.prepare(
     `UPDATE stores SET owner_user_id = NULL WHERE LOWER(id) = ? AND owner_user_id = ?`
   ).bind(storeId, ownerId).run()

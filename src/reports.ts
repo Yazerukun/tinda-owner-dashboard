@@ -45,8 +45,9 @@ export async function getOverallSummary(
             COALESCE(last_sale_at, (SELECT MAX(sold_at) FROM sales WHERE LOWER(store_id) = LOWER(stores.id))) AS last_sale_at,
             last_sync_at
      FROM stores
-     WHERE owner_user_id = ?`
-  ).bind(ownerUserId).all<{ id: string; branch_name: string; last_sale_at: string | null; last_sync_at: string | null }>()
+     WHERE owner_user_id = ?
+        OR LOWER(id) IN (SELECT LOWER(store_id) FROM store_owners WHERE owner_user_id = ?)`
+  ).bind(ownerUserId, ownerUserId).all<{ id: string; branch_name: string; last_sale_at: string | null; last_sync_at: string | null }>()
 
   if (!stores.results.length) {
     return { total_sales_c: 0, cash_c: 0, gcash_c: 0, maya_c: 0, utang_c: 0, transaction_count: 0, branches: [] }
@@ -122,13 +123,40 @@ export async function getBranchDetail(
             COALESCE(last_sale_at, (SELECT MAX(sold_at) FROM sales WHERE LOWER(store_id) = LOWER(stores.id))) AS last_sale_at,
             last_sync_at
      FROM stores
-     WHERE LOWER(id) = ? AND owner_user_id = ?`
-  ).bind(normStoreId, ownerUserId).first<{ id: string; branch_name: string; last_sale_at: string | null; last_sync_at: string | null }>()
+     WHERE LOWER(id) = ? AND (
+       owner_user_id = ?
+       OR LOWER(id) IN (SELECT LOWER(store_id) FROM store_owners WHERE owner_user_id = ?)
+     )`
+  ).bind(normStoreId, ownerUserId, ownerUserId).first<{ id: string; branch_name: string; last_sale_at: string | null; last_sync_at: string | null }>()
   if (!store) return null
 
   store.id = store.id.trim().toLowerCase()
 
-  // Recent sales (max 100) — filtered by day substring
+  // Period Financials: exact aggregate query across entire date range (prevents LIMIT truncation)
+  const periodFinancials = await db.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN total_c ELSE 0 END), 0) AS total_sales_c,
+       COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN cash_c ELSE 0 END), 0)  AS cash_c,
+       COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN gcash_c ELSE 0 END), 0) AS gcash_c,
+       COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN maya_c ELSE 0 END), 0)  AS maya_c,
+       COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN utang_c ELSE 0 END), 0) AS utang_c,
+       COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) AS transaction_count,
+       COUNT(CASE WHEN status = 'VOIDED' THEN 1 END)    AS void_count,
+       COALESCE(SUM(CASE WHEN status = 'VOIDED' THEN total_c ELSE 0 END), 0)    AS void_total_c
+     FROM sales
+     WHERE LOWER(store_id) = ? AND substr(sold_at, 1, 10) BETWEEN ? AND ?`
+  ).bind(normStoreId, startDate, endDate).first<{
+    total_sales_c: number
+    cash_c: number
+    gcash_c: number
+    maya_c: number
+    utang_c: number
+    transaction_count: number
+    void_count: number
+    void_total_c: number
+  }>()
+
+  // Recent sales (up to 300) — filtered by day substring
   const sales = await db.prepare(
     `SELECT s.id, s.transaction_no, s.cashier_name, s.customer_name,
             s.total_c, s.cash_c, s.gcash_c, s.maya_c, s.utang_c,
@@ -138,7 +166,7 @@ export async function getBranchDetail(
      LEFT JOIN sale_items si ON si.sale_id = s.id
      WHERE LOWER(s.store_id) = ? AND substr(s.sold_at, 1, 10) BETWEEN ? AND ?
      GROUP BY s.id
-     ORDER BY s.sold_at DESC LIMIT 100`
+     ORDER BY s.sold_at DESC LIMIT 300`
   ).bind(normStoreId, startDate, endDate).all<{
     id: number; transaction_no: string; cashier_name: string | null; customer_name: string | null;
     total_c: number; cash_c: number; gcash_c: number; maya_c: number; utang_c: number;
@@ -225,7 +253,19 @@ export async function getBranchDetail(
   ).bind(normStoreId, normStoreId).all<{ product_name: string; unit: string; quantity_after: number; moved_at: string }>()
 
   return {
+    from: startDate,
+    to: endDate,
     store,
+    periodFinancials: periodFinancials || {
+      total_sales_c: 0,
+      cash_c: 0,
+      gcash_c: 0,
+      maya_c: 0,
+      utang_c: 0,
+      transaction_count: 0,
+      void_count: 0,
+      void_total_c: 0
+    },
     sales: sales.results,
     stockMovements: stockMovements.results,
     shifts: shifts.results,
@@ -244,6 +284,7 @@ export async function getLinkedBranches(db: D1Database, ownerUserId: number) {
             last_sync_at, created_at
      FROM stores
      WHERE owner_user_id = ?
+        OR LOWER(id) IN (SELECT LOWER(store_id) FROM store_owners WHERE owner_user_id = ?)
      ORDER BY branch_name`
-  ).bind(ownerUserId).all<{ id: string; branch_name: string; last_sale_at: string | null; last_sync_at: string | null; created_at: string }>()
+  ).bind(ownerUserId, ownerUserId).all<{ id: string; branch_name: string; last_sale_at: string | null; last_sync_at: string | null; created_at: string }>()
 }

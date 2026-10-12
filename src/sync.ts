@@ -60,6 +60,7 @@ export interface ShiftPayload {
 }
 
 export async function syncSale(db: D1Database, storeId: string, p: SalePayload): Promise<void> {
+  const normId = storeId.trim().toLowerCase()
   // Upsert sale
   const res = await db.prepare(
     `INSERT INTO sales
@@ -76,7 +77,7 @@ export async function syncSale(db: D1Database, storeId: string, p: SalePayload):
        utang_c = excluded.utang_c,
        synced_at = datetime('now')`
   ).bind(
-    storeId, p.local_sale_id, p.transaction_no, p.cashier_name ?? null,
+    normId, p.local_sale_id, p.transaction_no, p.cashier_name ?? null,
     p.customer_name ?? null, p.subtotal_c, p.discount_c, p.total_c, p.status,
     p.cash_c, p.gcash_c, p.maya_c, p.utang_c, p.local_shift_id ?? null, p.sold_at
   ).run()
@@ -94,13 +95,14 @@ export async function syncSale(db: D1Database, storeId: string, p: SalePayload):
     await db.batch(stmts)
   }
 
-  // Update store last_sale_at
+  // Update store last_sale_at & last_sync_at
   await db.prepare(
-    `UPDATE stores SET last_sale_at = datetime('now'), last_sync_at = datetime('now') WHERE id = ?`
-  ).bind(storeId).run()
+    `UPDATE stores SET last_sale_at = datetime('now'), last_sync_at = datetime('now') WHERE LOWER(id) = ?`
+  ).bind(normId).run()
 }
 
 export async function syncStock(db: D1Database, storeId: string, p: StockPayload): Promise<void> {
+  const normId = storeId.trim().toLowerCase()
   await db.prepare(
     `INSERT INTO stock_movements
        (store_id, local_movement_id, product_name, movement_type,
@@ -109,17 +111,18 @@ export async function syncStock(db: D1Database, storeId: string, p: StockPayload
      VALUES (?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(store_id, local_movement_id) DO NOTHING`
   ).bind(
-    storeId, p.local_movement_id, p.product_name, p.movement_type,
+    normId, p.local_movement_id, p.product_name, p.movement_type,
     p.quantity_change, p.quantity_before, p.quantity_after, p.unit,
     p.reference ?? null, p.reason ?? null, p.moved_at
   ).run()
 
   await db.prepare(
-    `UPDATE stores SET last_sync_at = datetime('now') WHERE id = ?`
-  ).bind(storeId).run()
+    `UPDATE stores SET last_sync_at = datetime('now') WHERE LOWER(id) = ?`
+  ).bind(normId).run()
 }
 
 export async function syncShift(db: D1Database, storeId: string, p: ShiftPayload): Promise<void> {
+  const normId = storeId.trim().toLowerCase()
   await db.prepare(
     `INSERT INTO shift_snapshots
        (store_id, local_shift_id, cashier_name, shift_date, opened_at, closed_at,
@@ -130,12 +133,12 @@ export async function syncShift(db: D1Database, storeId: string, p: ShiftPayload
        net_sales_c = excluded.net_sales_c,
        synced_at = datetime('now')`
   ).bind(
-    storeId, p.local_shift_id, p.cashier_name, p.shift_date, p.opened_at, p.closed_at,
+    normId, p.local_shift_id, p.cashier_name, p.shift_date, p.opened_at, p.closed_at,
     p.gross_sales_c, p.cash_c, p.gcash_c, p.maya_c, p.utang_c,
     p.refund_total_c, p.void_count, p.transaction_count, p.expenses_c, p.net_sales_c
   ).run()
 
   await db.prepare(
-    `UPDATE stores SET last_sync_at = datetime('now') WHERE id = ?`
-  ).bind(storeId).run()
+    `UPDATE stores SET last_sync_at = datetime('now') WHERE LOWER(id) = ?`
+  ).bind(normId).run()
 }

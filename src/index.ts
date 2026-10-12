@@ -5,12 +5,19 @@ import {
   validateSyncKey, ensureStore, extractBearer,
   createOwnerSession, validateOwnerSession,
   findOwnerByUsername, createOwnerUser, ownerCount, verifyOwnerPassword,
-  hashSyncKey
+  hashSyncKey, authenticateOrRegisterStore
 } from './auth'
 import { syncSale, syncStock, syncShift } from './sync'
 import { getOverallSummary, getBranchDetail, getLinkedBranches } from './reports'
 
-const app = new Hono<{ Bindings: Env }>()
+const app = new Hono<{
+  Bindings: Env
+  Variables: {
+    owner_id: number
+    store_id: string
+    body: any
+  }
+}>()
 
 // ---------------------------------------------------------------------------
 // CORS — allow dashboard origin
@@ -33,8 +40,8 @@ app.use('*', cors({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const ok = (c: Parameters<typeof app.get>[1] extends infer C ? C : never, data: unknown) =>
-  (c as any).json({ ok: true, ...((typeof data === 'object' && data !== null) ? data : { data }) })
+const ok = (c: any, data: unknown) =>
+  c.json({ ok: true, ...((typeof data === 'object' && data !== null) ? data : { data }) })
 
 const err = (c: any, status: number, message: string, code = 'ERROR') =>
   c.json({ ok: false, error: message, code }, status)
@@ -58,17 +65,15 @@ async function requireSyncKey(c: any, next: () => Promise<void>) {
   const body = await c.req.json().catch(() => null)
   if (!body) return err(c, 400, 'Invalid JSON body.', 'BAD_REQUEST')
 
-  const { store_id, branch_name, sync_key } = body as Record<string, unknown>
-  if (!store_id || !sync_key || typeof store_id !== 'string' || typeof sync_key !== 'string') {
+  const store_id = String((body as any).store_id ?? '').trim().toLowerCase()
+  const sync_key = String((body as any).sync_key ?? '').trim()
+  const branch_name = String((body as any).branch_name ?? 'Unknown Branch').trim()
+  if (!store_id || !sync_key) {
     return err(c, 400, 'store_id and sync_key are required.', 'BAD_REQUEST')
   }
 
-  // Auto-register store on first sync
-  await ensureStore(c.env.DB, store_id, String(branch_name ?? 'Unknown Branch'), sync_key, c.env.SESSION_SECRET)
-
-  // Validate key
-  const { ok: valid } = await validateSyncKey(c.env.DB, store_id, sync_key, c.env.SESSION_SECRET)
-  if (!valid) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
+  const auth = await authenticateOrRegisterStore(c.env.DB, store_id, branch_name, sync_key, c.env.SESSION_SECRET)
+  if (!auth.ok) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
 
   c.set('store_id', store_id)
   c.set('body', body)
@@ -80,14 +85,16 @@ app.post('/api/sync/sale', async (c) => {
   let body: any
   try { body = await c.req.json() } catch { return err(c, 400, 'Invalid JSON.', 'BAD_REQUEST') }
 
-  const { store_id, sync_key, branch_name, data } = body
-  if (!store_id || !sync_key || !data) return err(c, 400, 'store_id, sync_key, data required.', 'BAD_REQUEST')
+  const rawStoreId = String(body.store_id ?? '').trim().toLowerCase()
+  const sync_key = String(body.sync_key ?? '').trim()
+  const branch_name = String(body.branch_name ?? '').trim() || 'Unknown'
+  const { data } = body
+  if (!rawStoreId || !sync_key || !data) return err(c, 400, 'store_id, sync_key, data required.', 'BAD_REQUEST')
 
-  await ensureStore(c.env.DB, store_id, branch_name ?? 'Unknown', sync_key, c.env.SESSION_SECRET)
-  const { ok: valid } = await validateSyncKey(c.env.DB, store_id, sync_key, c.env.SESSION_SECRET)
-  if (!valid) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
+  const auth = await authenticateOrRegisterStore(c.env.DB, rawStoreId, branch_name, sync_key, c.env.SESSION_SECRET)
+  if (!auth.ok) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
 
-  await syncSale(c.env.DB, store_id, data)
+  await syncSale(c.env.DB, rawStoreId, data)
   return c.json({ ok: true, received: 'sale' })
 })
 
@@ -96,14 +103,16 @@ app.post('/api/sync/stock', async (c) => {
   let body: any
   try { body = await c.req.json() } catch { return err(c, 400, 'Invalid JSON.', 'BAD_REQUEST') }
 
-  const { store_id, sync_key, branch_name, data } = body
-  if (!store_id || !sync_key || !data) return err(c, 400, 'store_id, sync_key, data required.', 'BAD_REQUEST')
+  const rawStoreId = String(body.store_id ?? '').trim().toLowerCase()
+  const sync_key = String(body.sync_key ?? '').trim()
+  const branch_name = String(body.branch_name ?? '').trim() || 'Unknown'
+  const { data } = body
+  if (!rawStoreId || !sync_key || !data) return err(c, 400, 'store_id, sync_key, data required.', 'BAD_REQUEST')
 
-  await ensureStore(c.env.DB, store_id, branch_name ?? 'Unknown', sync_key, c.env.SESSION_SECRET)
-  const { ok: valid } = await validateSyncKey(c.env.DB, store_id, sync_key, c.env.SESSION_SECRET)
-  if (!valid) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
+  const auth = await authenticateOrRegisterStore(c.env.DB, rawStoreId, branch_name, sync_key, c.env.SESSION_SECRET)
+  if (!auth.ok) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
 
-  await syncStock(c.env.DB, store_id, data)
+  await syncStock(c.env.DB, rawStoreId, data)
   return c.json({ ok: true, received: 'stock_movement' })
 })
 
@@ -112,14 +121,16 @@ app.post('/api/sync/shift', async (c) => {
   let body: any
   try { body = await c.req.json() } catch { return err(c, 400, 'Invalid JSON.', 'BAD_REQUEST') }
 
-  const { store_id, sync_key, branch_name, data } = body
-  if (!store_id || !sync_key || !data) return err(c, 400, 'store_id, sync_key, data required.', 'BAD_REQUEST')
+  const rawStoreId = String(body.store_id ?? '').trim().toLowerCase()
+  const sync_key = String(body.sync_key ?? '').trim()
+  const branch_name = String(body.branch_name ?? '').trim() || 'Unknown'
+  const { data } = body
+  if (!rawStoreId || !sync_key || !data) return err(c, 400, 'store_id, sync_key, data required.', 'BAD_REQUEST')
 
-  await ensureStore(c.env.DB, store_id, branch_name ?? 'Unknown', sync_key, c.env.SESSION_SECRET)
-  const { ok: valid } = await validateSyncKey(c.env.DB, store_id, sync_key, c.env.SESSION_SECRET)
-  if (!valid) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
+  const auth = await authenticateOrRegisterStore(c.env.DB, rawStoreId, branch_name, sync_key, c.env.SESSION_SECRET)
+  if (!auth.ok) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
 
-  await syncShift(c.env.DB, store_id, data)
+  await syncShift(c.env.DB, rawStoreId, data)
   return c.json({ ok: true, received: 'shift' })
 })
 
@@ -199,7 +210,7 @@ app.get('/api/owner/branches', requireOwner, async (c) => {
 /** GET /api/owner/branch/:store_id?from=YYYY-MM-DD&to=YYYY-MM-DD */
 app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
   const ownerId: number = c.get('owner_id')
-  const storeId = c.req.param('store_id')
+  const storeId = String(c.req.param('store_id') ?? '').trim().toLowerCase()
   const from = dayQ(c.req.query('from'))
   const to = dayQ(c.req.query('to'))
   const detail = await getBranchDetail(c.env.DB, ownerId, storeId, from, to)
@@ -216,11 +227,10 @@ const handleSyncPing = async (c: any) => {
   const branchName = String(body.branch_name ?? '').trim() || 'My Store'
   if (!storeId || !syncKey) return err(c, 400, 'store_id and sync_key required.', 'BAD_REQUEST')
 
-  await ensureStore(c.env.DB, storeId, branchName, syncKey, c.env.SESSION_SECRET)
-  const { ok: valid } = await validateSyncKey(c.env.DB, storeId, syncKey, c.env.SESSION_SECRET)
-  if (!valid) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
+  const auth = await authenticateOrRegisterStore(c.env.DB, storeId, branchName, syncKey, c.env.SESSION_SECRET)
+  if (!auth.ok) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
 
-  return c.json({ ok: true, status: 'connected', store_id: storeId, branch_name: branchName })
+  return c.json({ ok: true, status: 'connected', store_id: storeId, branch_name: auth.branchName || branchName })
 }
 app.post('/api/sync/ping', handleSyncPing)
 app.post('/api/sync/register', handleSyncPing)
@@ -247,21 +257,34 @@ app.post('/api/owner/branch/link', requireOwner, async (c) => {
   if (existingStore) {
     // If store already has a sync key hash, verify it matches
     if (existingStore.sync_key_hash !== expectedKeyHash) {
+      if (existingStore.owner_user_id === ownerId) {
+        // Owner is updating their existing branch's sync key
+        await c.env.DB.prepare(
+          `UPDATE stores
+           SET sync_key_hash = ?, branch_name = ?,
+               last_sale_at = COALESCE(last_sale_at, (SELECT MAX(sold_at) FROM sales WHERE LOWER(store_id) = LOWER(stores.id)))
+           WHERE LOWER(id) = ?`
+        ).bind(expectedKeyHash, branchName, storeId).run()
+        return c.json({ ok: true, message: `Branch "${branchName}" sync key updated successfully!` })
+      }
       return err(c, 401, 'Invalid Sync Key for this Store ID. Please verify the Sync Key in Settings.', 'INVALID_CREDENTIALS')
     }
-    // Update owner_user_id to current owner
+    // Update owner_user_id to current owner, ensure id is lowercase, and backfill last_sale_at if missing
     await c.env.DB.prepare(
-      'UPDATE stores SET owner_user_id = ? WHERE id = ?'
-    ).bind(ownerId, existingStore.id).run()
+      `UPDATE stores
+       SET owner_user_id = ?, id = LOWER(id),
+           last_sale_at = COALESCE(last_sale_at, (SELECT MAX(sold_at) FROM sales WHERE LOWER(store_id) = LOWER(stores.id)))
+       WHERE LOWER(id) = ?`
+    ).bind(ownerId, storeId).run()
 
     return c.json({ ok: true, message: `Branch "${existingStore.branch_name}" linked successfully!` })
   } else {
     // Store does not exist in Cloudflare D1 yet!
     // Auto-create/pre-register the store associated directly with this owner!
     await c.env.DB.prepare(
-      `INSERT INTO stores (id, branch_name, sync_key_hash, owner_user_id, last_sync_at)
-       VALUES (?, ?, ?, ?, datetime('now'))`
-    ).bind(storeId, branchName, expectedKeyHash, ownerId).run()
+      `INSERT INTO stores (id, branch_name, sync_key_hash, owner_user_id, last_sale_at, last_sync_at)
+       VALUES (?, ?, ?, ?, (SELECT MAX(sold_at) FROM sales WHERE LOWER(store_id) = LOWER(?)), datetime('now'))`
+    ).bind(storeId, branchName, expectedKeyHash, ownerId, storeId).run()
 
     return c.json({ ok: true, message: `Branch "${branchName}" registered and linked to your account!` })
   }
@@ -270,9 +293,9 @@ app.post('/api/owner/branch/link', requireOwner, async (c) => {
 /** DELETE /api/owner/branch/:store_id — unlink a branch */
 app.delete('/api/owner/branch/:store_id', requireOwner, async (c) => {
   const ownerId: number = c.get('owner_id')
-  const storeId = c.req.param('store_id')
+  const storeId = String(c.req.param('store_id') ?? '').trim().toLowerCase()
   await c.env.DB.prepare(
-    `UPDATE stores SET owner_user_id = NULL WHERE id = ? AND owner_user_id = ?`
+    `UPDATE stores SET owner_user_id = NULL WHERE LOWER(id) = ? AND owner_user_id = ?`
   ).bind(storeId, ownerId).run()
   return c.json({ ok: true, message: 'Branch unlinked.' })
 })

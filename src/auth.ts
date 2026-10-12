@@ -35,15 +35,48 @@ export async function hashSyncKey(syncKey: string, secret: string): Promise<stri
 // Sync-key auth (TINDA-POS → Worker)
 // ---------------------------------------------------------------------------
 
+export async function authenticateOrRegisterStore(
+  db: D1Database,
+  storeId: string,
+  branchName: string,
+  syncKey: string,
+  secret: string
+): Promise<{ ok: boolean; branchName?: string }> {
+  const normId = storeId.trim().toLowerCase()
+  const keyHash = await hashSyncKey(syncKey.trim(), secret)
+
+  const existing = await db.prepare(
+    'SELECT id, branch_name, sync_key_hash FROM stores WHERE LOWER(id) = ?'
+  ).bind(normId).first<{ id: string; branch_name: string; sync_key_hash: string }>()
+
+  if (!existing) {
+    await db.prepare(
+      `INSERT INTO stores (id, branch_name, sync_key_hash, last_sync_at) VALUES (?, ?, ?, datetime('now'))`
+    ).bind(normId, branchName.trim() || 'My Store', keyHash).run()
+    return { ok: true, branchName: branchName.trim() || 'My Store' }
+  }
+
+  if (existing.sync_key_hash !== keyHash) {
+    return { ok: false }
+  }
+
+  await db.prepare(
+    `UPDATE stores SET branch_name = ?, last_sync_at = datetime('now'), id = LOWER(id) WHERE LOWER(id) = ?`
+  ).bind(branchName.trim() || existing.branch_name, normId).run()
+
+  return { ok: true, branchName: existing.branch_name }
+}
+
 export async function validateSyncKey(
   db: D1Database,
   storeId: string,
   syncKey: string,
   secret: string
 ): Promise<{ ok: boolean; branchName?: string }> {
-  const expected = await hashSyncKey(syncKey, secret)
-  const row = await db.prepare('SELECT branch_name FROM stores WHERE id = ? AND sync_key_hash = ?')
-    .bind(storeId, expected)
+  const normId = storeId.trim().toLowerCase()
+  const expected = await hashSyncKey(syncKey.trim(), secret)
+  const row = await db.prepare('SELECT branch_name FROM stores WHERE LOWER(id) = ? AND sync_key_hash = ?')
+    .bind(normId, expected)
     .first<{ branch_name: string }>()
   if (!row) return { ok: false }
   return { ok: true, branchName: row.branch_name }
@@ -57,14 +90,7 @@ export async function ensureStore(
   syncKey: string,
   secret: string
 ): Promise<void> {
-  const keyHash = await hashSyncKey(syncKey, secret)
-  await db.prepare(
-    `INSERT INTO stores (id, branch_name, sync_key_hash, last_sync_at)
-     VALUES (?, ?, ?, datetime('now'))
-     ON CONFLICT(id) DO UPDATE SET
-       branch_name = excluded.branch_name,
-       last_sync_at = datetime('now')`
-  ).bind(storeId, branchName, keyHash).run()
+  await authenticateOrRegisterStore(db, storeId, branchName, syncKey, secret)
 }
 
 // ---------------------------------------------------------------------------

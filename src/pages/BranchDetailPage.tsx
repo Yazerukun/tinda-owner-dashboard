@@ -1,7 +1,16 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { request, formatPesos, formatDateTime } from '../api'
 import type { BranchDetailResponse } from '../types'
-import { exportSalesToCsv, exportShiftsToCsv, triggerHaptic } from '../utils'
+import {
+  exportSalesToCsv,
+  exportShiftsToCsv,
+  triggerHaptic,
+  getLocalToday,
+  addDays,
+  formatHumanDate,
+  formatHumanRange,
+  getDaysAgo
+} from '../utils'
 import { LowStockModal } from './LowStockModal'
 
 interface Props {
@@ -24,42 +33,64 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
   const [expandBannerItems, setExpandBannerItems] = useState(false)
   const [restockSearch, setRestockSearch] = useState('')
   const [activePreset, setActivePreset] = useState<'today' | 'yesterday' | '7days' | 'month' | 'custom'>('today')
+  const [customSubMode, setCustomSubMode] = useState<'single' | 'range'>(from === to ? 'single' : 'range')
   const [customFrom, setCustomFrom] = useState(from)
   const [customTo, setCustomTo] = useState(to)
 
+  // Synchronize activePreset and customSubMode with from/to
   useEffect(() => {
     setCustomFrom(from)
     setCustomTo(to)
+
+    const today = getLocalToday()
+    const yesterday = addDays(today, -1)
+    const past7 = addDays(today, -6)
+    const now = new Date()
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+
+    if (from === to) {
+      setCustomSubMode('single')
+      if (from === today) {
+        setActivePreset('today')
+      } else if (from === yesterday) {
+        setActivePreset('yesterday')
+      } else {
+        // Specific past date like 2026-10-08
+        setActivePreset('custom')
+      }
+    } else {
+      setCustomSubMode('range')
+      if (from === past7 && to === today) {
+        setActivePreset('7days')
+      } else if (from === monthStart && to === today) {
+        setActivePreset('month')
+      } else {
+        setActivePreset('custom')
+      }
+    }
   }, [from, to])
 
   const setPreset = (preset: 'today' | 'yesterday' | '7days' | 'month' | 'custom') => {
     triggerHaptic('light')
     setActivePreset(preset)
-    if (preset === 'custom') return
-
-    const now = new Date()
-    const fmt = (d: Date) => {
-      const year = d.getFullYear()
-      const month = String(d.getMonth() + 1).padStart(2, '0')
-      const day = String(d.getDate()).padStart(2, '0')
-      return `${year}-${month}-${day}`
-    }
+    const today = getLocalToday()
 
     if (preset === 'today') {
-      const t = fmt(now)
-      onDateChange(t, t)
+      onDateChange(today, today)
     } else if (preset === 'yesterday') {
-      const y = new Date(now)
-      y.setDate(y.getDate() - 1)
-      const t = fmt(y)
-      onDateChange(t, t)
+      const y = addDays(today, -1)
+      onDateChange(y, y)
     } else if (preset === '7days') {
-      const past = new Date(now)
-      past.setDate(past.getDate() - 6)
-      onDateChange(fmt(past), fmt(now))
+      const past = addDays(today, -6)
+      onDateChange(past, today)
     } else if (preset === 'month') {
-      const start = new Date(now.getFullYear(), now.getMonth(), 1)
-      onDateChange(fmt(start), fmt(now))
+      const now = new Date()
+      const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+      onDateChange(start, today)
+    } else if (preset === 'custom') {
+      if (from === to) {
+        setCustomSubMode('single')
+      }
     }
   }
 
@@ -67,6 +98,36 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
     if (!customFrom || !customTo || customFrom > customTo) return
     triggerHaptic('light')
     onDateChange(customFrom, customTo)
+  }
+
+  const handleSingleDateSelect = (selectedDate: string) => {
+    if (!selectedDate) return
+    triggerHaptic('light')
+    onDateChange(selectedDate, selectedDate)
+  }
+
+  const handlePrevDay = () => {
+    triggerHaptic('light')
+    const baseDate = from === to ? from : to
+    const prev = addDays(baseDate, -1)
+    onDateChange(prev, prev)
+  }
+
+  const handleNextDay = () => {
+    triggerHaptic('light')
+    const today = getLocalToday()
+    const baseDate = from === to ? from : to
+    if (baseDate >= today) return
+    const next = addDays(baseDate, 1)
+    if (next <= today) {
+      onDateChange(next, next)
+    }
+  }
+
+  const handleGoToday = () => {
+    triggerHaptic('light')
+    const today = getLocalToday()
+    onDateChange(today, today)
   }
 
   const scrollToRestockTable = () => {
@@ -197,6 +258,11 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
     setTimeout(() => setCopiedRestock(false), 2500)
   }
 
+  const today = getLocalToday()
+  const isHistorical = from < today || (from !== to && to < today)
+  const isSingleDay = from === to
+  const daysAgo = getDaysAgo(from, today)
+
   if (loading && !data) {
     return (
       <div className="empty-state" style={{ minHeight: '60vh', display: 'grid', placeContent: 'center' }}>
@@ -319,7 +385,7 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
             className={`segment-btn ${activePreset === 'custom' ? 'active' : ''}`}
             onClick={() => setPreset('custom')}
           >
-            📅 Custom
+            📅 Specific Date
           </button>
         </div>
 
@@ -328,39 +394,187 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
         </div>
       </div>
 
-      {/* Custom Date Range Strip */}
+      {/* Custom Date / Specific Day Strip */}
       {activePreset === 'custom' && (
         <div className="custom-date-strip">
-          <div className="custom-date-group">
-            <label className="custom-date-label">From:</label>
-            <input
-              type="date"
-              value={customFrom}
-              max={customTo}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              className="custom-date-input"
-            />
+          <div className="custom-strip-header">
+            <div className="custom-sub-tabs">
+              <button
+                type="button"
+                className={`custom-sub-tab ${customSubMode === 'single' ? 'active' : ''}`}
+                onClick={() => {
+                  triggerHaptic('light')
+                  setCustomSubMode('single')
+                  if (from !== to) {
+                    onDateChange(to, to)
+                  }
+                }}
+              >
+                🗓️ Specific Day
+              </button>
+              <button
+                type="button"
+                className={`custom-sub-tab ${customSubMode === 'range' ? 'active' : ''}`}
+                onClick={() => {
+                  triggerHaptic('light')
+                  setCustomSubMode('range')
+                }}
+              >
+                📆 Date Range
+              </button>
+            </div>
+
+            <div className="custom-strip-info">
+              {customSubMode === 'single' ? (
+                <span>Showing: <strong style={{ color: '#fff' }}>{formatHumanDate(from)}</strong></span>
+              ) : (
+                <span>Period: <strong style={{ color: '#fff' }}>{from}</strong> to <strong style={{ color: '#fff' }}>{to}</strong></span>
+              )}
+            </div>
           </div>
-          <div className="custom-date-group">
-            <label className="custom-date-label">To:</label>
-            <input
-              type="date"
-              value={customTo}
-              min={customFrom}
-              onChange={(e) => setCustomTo(e.target.value)}
-              className="custom-date-input"
-            />
+
+          {customSubMode === 'single' ? (
+            <div className="single-date-controls">
+              <div className="custom-date-group">
+                <label className="custom-date-label">Pick Date:</label>
+                <input
+                  type="date"
+                  value={from}
+                  max={today}
+                  onChange={(e) => handleSingleDateSelect(e.target.value)}
+                  className="custom-date-input"
+                  aria-label="Pick Specific Date"
+                />
+              </div>
+
+              <div className="day-stepper-group">
+                <button
+                  type="button"
+                  className="btn-stepper"
+                  onClick={handlePrevDay}
+                  title="Go to previous day"
+                >
+                  ◀ Prev Day
+                </button>
+                <button
+                  type="button"
+                  className="btn-stepper"
+                  disabled={from >= today}
+                  onClick={handleNextDay}
+                  title="Go to next day"
+                >
+                  Next Day ▶
+                </button>
+              </div>
+
+              {from !== today && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleGoToday}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                >
+                  ⚡ Today
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="range-date-controls">
+              <div className="custom-date-group">
+                <label className="custom-date-label">From:</label>
+                <input
+                  type="date"
+                  value={customFrom}
+                  max={customTo}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="custom-date-input"
+                />
+              </div>
+              <div className="custom-date-group">
+                <label className="custom-date-label">To:</label>
+                <input
+                  type="date"
+                  value={customTo}
+                  min={customFrom}
+                  max={today}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="custom-date-input"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleApplyCustom}
+                className="btn btn-primary btn-sm"
+                disabled={!customFrom || !customTo || customFrom > customTo}
+              >
+                Apply Range
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Apple Cupertino Historical Date Banner */}
+      {isHistorical && (
+        <div className="historical-banner">
+          <div className="historical-banner-content">
+            <div className="historical-badge-pill">
+              <span className="historical-dot" />
+              📜 Historical Telemetry
+            </div>
+            <div className="historical-text-wrap">
+              <div className="historical-title">
+                {isSingleDay ? (
+                  <>Viewing Historical Date: <strong>{formatHumanDate(from)}</strong></>
+                ) : (
+                  <>Viewing Historical Period: <strong>{formatHumanRange(from, to)}</strong></>
+                )}
+              </div>
+              <div className="historical-subtitle">
+                {isSingleDay ? (
+                  from === addDays(today, -1) ? (
+                    'Yesterday · Store sales, shift audits & transaction logs reflect this day only'
+                  ) : (
+                    `${daysAgo} days ago (${from}) · Store sales, shift audits & transaction logs reflect this day only`
+                  )
+                ) : (
+                  `Historical range (${from} to ${to}) · Aggregated branch telemetry for this period`
+                )}
+              </div>
+            </div>
           </div>
-          <button
-            onClick={handleApplyCustom}
-            className="btn btn-primary btn-sm"
-            disabled={!customFrom || !customTo || customFrom > customTo}
-          >
-            Apply Range
-          </button>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
-            Historical Range: <strong style={{ color: '#fff' }}>{from}</strong> to <strong style={{ color: '#fff' }}>{to}</strong>
-          </span>
+
+          <div className="historical-banner-actions">
+            {isSingleDay && (
+              <div className="stepper-action-group">
+                <button
+                  type="button"
+                  className="btn-stepper-banner"
+                  onClick={handlePrevDay}
+                  title="Step to Previous Day"
+                >
+                  ◀ Prev Day
+                </button>
+                <button
+                  type="button"
+                  className="btn-stepper-banner"
+                  disabled={from >= today}
+                  onClick={handleNextDay}
+                  title="Step to Next Day"
+                >
+                  Next Day ▶
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              className="btn-return-today"
+              onClick={handleGoToday}
+              title="Return to Today's Live Sales"
+            >
+              ⚡ Return to Today
+            </button>
+          </div>
         </div>
       )}
 

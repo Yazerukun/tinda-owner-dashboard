@@ -110,3 +110,70 @@ export function exportShiftsToCsv(shifts: ShiftRow[], branchName: string, dateRa
   const cleanBranch = branchName.replace(/[^a-zA-Z0-9]/g, '_')
   downloadCsv(csv, `TINDA_Shifts_${cleanBranch}_${dateRange}.csv`)
 }
+
+/**
+ * Return today's date formatted as YYYY-MM-DD in local time
+ */
+export function getLocalToday(): string {
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/**
+ * Add or subtract days from a YYYY-MM-DD string in local time safely
+ */
+export function addDays(dateStr: string, days: number): string {
+  if (!dateStr) return getLocalToday()
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(y, m - 1, d, 12, 0, 0)
+  dt.setDate(dt.getDate() + days)
+  const year = dt.getFullYear()
+  const month = String(dt.getMonth() + 1).padStart(2, '0')
+  const day = String(dt.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/**
+ * Format YYYY-MM-DD into human-readable date, e.g. "Wednesday, October 8, 2026"
+ */
+export function formatHumanDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(y, m - 1, d, 12, 0, 0)
+  return dt.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
+  })
+}
+
+/**
+ * Format a date range into human-readable text
+ */
+export function formatHumanRange(fromStr: string, toStr: string): string {
+  if (!fromStr || !toStr) return ''
+  if (fromStr === toStr) return formatHumanDate(fromStr)
+  const [y1, m1, d1] = fromStr.split('-').map(Number)
+  const [y2, m2, d2] = toStr.split('-').map(Number)
+  const dt1 = new Date(y1, m1 - 1, d1, 12, 0, 0)
+  const dt2 = new Date(y2, m2 - 1, d2, 12, 0, 0)
+  return `${dt1.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${dt2.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+}
+
+/**
+ * Calculate difference in days between target date and today
+ */
+export function getDaysAgo(dateStr: string, referenceToday?: string): number {
+  if (!dateStr) return 0
+  const todayStr = referenceToday || getLocalToday()
+  const [y1, m1, d1] = dateStr.split('-').map(Number)
+  const [y2, m2, d2] = todayStr.split('-').map(Number)
+  const dt1 = new Date(y1, m1 - 1, d1, 12, 0, 0).getTime()
+  const dt2 = new Date(y2, m2 - 1, d2, 12, 0, 0).getTime()
+  return Math.round((dt2 - dt1) / (1000 * 60 * 60 * 24))
+}
+

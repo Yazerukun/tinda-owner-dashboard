@@ -78,9 +78,12 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
     }
   }, [from, to])
 
-  // Auto-refresh countdown every 60s
+  // Auto-refresh countdown every 60s (pauses automatically when tab is inactive)
   useEffect(() => {
     const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return // Paused while tab is backgrounded
+      }
       setAutoRefreshSecs((prev) => {
         if (prev <= 1) {
           loadSummary()
@@ -89,7 +92,19 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
         return prev - 1
       })
     }, 1000)
-    return () => clearInterval(timer)
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadSummary()
+        setAutoRefreshSecs(60)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [from, to])
 
   const setPreset = (preset: 'today' | 'yesterday' | '7days' | 'month' | 'custom') => {

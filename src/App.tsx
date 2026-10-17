@@ -93,7 +93,7 @@ export const App: React.FC = () => {
               <span>TINDA POS</span>
               <span className="brand-badge">Cloud</span>
             </div>
-            <div className="brand-subtext">Executive Sales Telemetry • v1.0.54</div>
+            <div className="brand-subtext">Executive Sales Telemetry • v3.0.2</div>
           </div>
         </div>
 
@@ -106,7 +106,7 @@ export const App: React.FC = () => {
             className="btn btn-secondary btn-sm header-action-btn"
             title="Download TINDA POS Desktop Release"
           >
-            📥 v1.0.54 App
+            📥 v3.0.2 App
           </button>
 
           <button

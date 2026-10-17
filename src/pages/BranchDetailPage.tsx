@@ -155,6 +155,23 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
 
   useEffect(() => {
     loadData()
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadData()
+      }
+    }, 60000)
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadData()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [storeId, from, to])
 
   const copyStoreId = () => {
@@ -308,6 +325,17 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
         </button>
 
         <div className="detail-actions-scroll">
+          <button
+            onClick={() => {
+              triggerHaptic('light')
+              loadData()
+            }}
+            className="btn btn-secondary btn-sm"
+            title="Refresh Branch Data"
+          >
+            🔄 Refresh
+          </button>
+
           <button
             onClick={() => {
               triggerHaptic('light')

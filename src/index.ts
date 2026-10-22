@@ -276,9 +276,86 @@ app.get('/api/owner/summary', requireOwner, async (c) => {
         if (fb) return c.json(await fb.json())
       } catch {}
     }
-    // If D1 limit is exceeded and no summary cache exists, return resilient empty summary with notice
+    // If D1 limit is exceeded, seamlessly fetch from Supabase
     const isD1Limit = String(err?.message || '').includes('daily row read limit')
     if (isD1Limit) {
+      try {
+        const supaHeaders = {
+          apikey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlcnVlbnBtc2NveHd5Y25pa2xyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MTAxNTAsImV4cCI6MjEwODE4NjE1MH0.flHZBS2LbR4Plc6Ta3kmubxpn9yvj8TBNCJ_k_rxWMg',
+          Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlcnVlbnBtc2NveHd5Y25pa2xyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MTAxNTAsImV4cCI6MjEwODE4NjE1MH0.flHZBS2LbR4Plc6Ta3kmubxpn9yvj8TBNCJ_k_rxWMg'
+        }
+        const sUrl = 'https://qeruenpmscoxwycniklr.supabase.co/rest/v1'
+        const [stRes, slRes] = await Promise.all([
+          fetch(`${sUrl}/stores?owner_user_id=eq.${ownerId}&select=*`, { headers: supaHeaders }),
+          fetch(`${sUrl}/sales?select=id,store_id,subtotal_c,discount_c,total_c,cash_c,gcash_c,maya_c,utang_c,status,sold_at&limit=2000`, { headers: supaHeaders })
+        ])
+        const stArr = stRes.ok ? await stRes.json() : []
+        const slArr = slRes.ok ? await slRes.json() : []
+
+        const branchMap = new Map<string, any>()
+        for (const s of stArr) {
+          branchMap.set(s.id, {
+            store_id: s.id,
+            branch_name: s.branch_name,
+            last_sale_at: s.last_sale_at,
+            last_sync_at: s.last_sync_at,
+            total_sales_c: 0,
+            gross_sales_c: 0,
+            discount_c: 0,
+            cash_c: 0,
+            gcash_c: 0,
+            maya_c: 0,
+            utang_c: 0,
+            void_count: 0,
+            void_total_c: 0,
+            transaction_count: 0
+          })
+        }
+
+        let tot = 0, csh = 0, gch = 0, mya = 0, utg = 0, txC = 0, vCount = 0, vTot = 0
+        for (const sale of slArr) {
+          const b = branchMap.get(sale.store_id)
+          if (!b) continue
+          if (sale.status === 'COMPLETED') {
+            tot += Number(sale.total_c || 0)
+            csh += Number(sale.cash_c || 0)
+            gch += Number(sale.gcash_c || 0)
+            mya += Number(sale.maya_c || 0)
+            utg += Number(sale.utang_c || 0)
+            txC++
+            b.total_sales_c += Number(sale.total_c || 0)
+            b.cash_c += Number(sale.cash_c || 0)
+            b.gcash_c += Number(sale.gcash_c || 0)
+            b.maya_c += Number(sale.maya_c || 0)
+            b.utang_c += Number(sale.utang_c || 0)
+            b.transaction_count++
+          } else if (sale.status === 'VOIDED') {
+            vCount++
+            vTot += Number(sale.total_c || 0)
+            b.void_count++
+            b.void_total_c += Number(sale.total_c || 0)
+          }
+        }
+
+        return c.json({
+          ok: true,
+          from,
+          to,
+          total_sales_c: tot,
+          gross_sales_c: tot,
+          discount_c: 0,
+          cash_c: csh,
+          gcash_c: gch,
+          maya_c: mya,
+          utang_c: utg,
+          transaction_count: txC,
+          void_count: vCount,
+          void_total_c: vTot,
+          branches: Array.from(branchMap.values())
+        })
+      } catch (supaErr) {
+        console.warn('Supabase fallback error in worker summary:', supaErr)
+      }
       return c.json({
         ok: true,
         from,
@@ -369,6 +446,81 @@ app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
     }
     const isD1Limit = String(e?.message || '').includes('daily row read limit')
     if (isD1Limit) {
+      try {
+        const supaHeaders = {
+          apikey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlcnVlbnBtc2NveHd5Y25pa2xyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MTAxNTAsImV4cCI6MjEwODE4NjE1MH0.flHZBS2LbR4Plc6Ta3kmubxpn9yvj8TBNCJ_k_rxWMg',
+          Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlcnVlbnBtc2NveHd5Y25pa2xyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MTAxNTAsImV4cCI6MjEwODE4NjE1MH0.flHZBS2LbR4Plc6Ta3kmubxpn9yvj8TBNCJ_k_rxWMg'
+        }
+        const sUrl = 'https://qeruenpmscoxwycniklr.supabase.co/rest/v1'
+        const [stRes, slRes, shRes, smRes] = await Promise.all([
+          fetch(`${sUrl}/stores?id=eq.${storeId}&select=*`, { headers: supaHeaders }),
+          fetch(`${sUrl}/sales?store_id=eq.${storeId}&select=*&order=sold_at.desc&limit=1000`, { headers: supaHeaders }),
+          fetch(`${sUrl}/shift_snapshots?store_id=eq.${storeId}&select=*&order=opened_at.desc&limit=50`, { headers: supaHeaders }),
+          fetch(`${sUrl}/stock_movements?store_id=eq.${storeId}&select=*&order=moved_at.desc&limit=100`, { headers: supaHeaders })
+        ])
+        const stArr = stRes.ok ? await stRes.json() : []
+        const slArr = slRes.ok ? await slRes.json() : []
+        const shArr = shRes.ok ? await shRes.json() : []
+        const smArr = smRes.ok ? await smRes.json() : []
+
+        const storeRecord = stArr[0] || { id: storeId, branch_name: storeId, last_sale_at: null, last_sync_at: null }
+        
+        let tot = 0, csh = 0, gch = 0, mya = 0, utg = 0, txC = 0, vCount = 0, vTot = 0
+        const dMap = new Map<string, { total_c: number; count: number }>()
+
+        for (const s of slArr) {
+          if (s.status === 'COMPLETED') {
+            tot += Number(s.total_c || 0)
+            csh += Number(s.cash_c || 0)
+            gch += Number(s.gcash_c || 0)
+            mya += Number(s.maya_c || 0)
+            utg += Number(s.utang_c || 0)
+            txC++
+            const dStr = (s.sold_at || '').slice(0, 10)
+            if (dStr) {
+              const cur = dMap.get(dStr) || { total_c: 0, count: 0 }
+              cur.total_c += Number(s.total_c || 0)
+              cur.count++
+              dMap.set(dStr, cur)
+            }
+          } else if (s.status === 'VOIDED') {
+            vCount++
+            vTot += Number(s.total_c || 0)
+          }
+        }
+
+        const dTotals = Array.from(dMap.entries())
+          .map(([day, val]) => ({ day, total_c: val.total_c, count: val.count }))
+          .sort((a, b) => a.day.localeCompare(b.day))
+
+        return c.json({
+          ok: true,
+          from,
+          to,
+          store: storeRecord,
+          periodFinancials: {
+            total_sales_c: tot,
+            gross_sales_c: tot,
+            discount_c: 0,
+            cash_c: csh,
+            gcash_c: gch,
+            maya_c: mya,
+            utang_c: utg,
+            transaction_count: txC,
+            void_count: vCount,
+            void_total_c: vTot
+          },
+          sales: slArr,
+          stockMovements: smArr,
+          shifts: shArr,
+          topProducts: [],
+          dailyTotals: dTotals,
+          hourlyTotals: [],
+          lowStockItems: []
+        })
+      } catch (supaErr) {
+        console.warn('Supabase fallback error in worker branch detail:', supaErr)
+      }
       return c.json({
         ok: true,
         from,

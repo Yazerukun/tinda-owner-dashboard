@@ -19,10 +19,20 @@ interface Props {
   to: string
   onDateChange: (from: string, to: string) => void
   onBack: () => void
+  portalData?: BranchDetailResponse | null
+  onRefreshPortal?: () => void
 }
 
-export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateChange, onBack }) => {
-  const [data, setData] = useState<BranchDetailResponse | null>(null)
+export const BranchDetailPage: React.FC<Props> = ({
+  storeId,
+  from,
+  to,
+  onDateChange,
+  onBack,
+  portalData,
+  onRefreshPortal
+}) => {
+  const [data, setData] = useState<BranchDetailResponse | null>(portalData || null)
   const [activeTab, setActiveTab] = useState<'sales' | 'stock' | 'restock' | 'items' | 'shifts'>('sales')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -142,6 +152,10 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
   }
 
   const loadData = async () => {
+    if (portalData) {
+      if (onRefreshPortal) onRefreshPortal()
+      return
+    }
     try {
       setLoading(true)
       const res = await request<BranchDetailResponse>(`/api/owner/branch/${storeId}?from=${from}&to=${to}`)
@@ -154,25 +168,13 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
   }
 
   useEffect(() => {
+    if (portalData) {
+      setData(portalData)
+      setLoading(false)
+      return
+    }
     loadData()
-    const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && !document.hidden) {
-        loadData()
-      }
-    }, 60000)
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        loadData()
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      clearInterval(timer)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [storeId, from, to])
+  }, [storeId, from, to, portalData])
 
   const copyStoreId = () => {
     if (!data?.store.id) return
@@ -325,17 +327,6 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
         </button>
 
         <div className="detail-actions-scroll">
-          <button
-            onClick={() => {
-              triggerHaptic('light')
-              loadData()
-            }}
-            className="btn btn-secondary btn-sm"
-            title="Refresh Branch Data"
-          >
-            🔄 Refresh
-          </button>
-
           <button
             onClick={() => {
               triggerHaptic('light')
@@ -723,7 +714,7 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
 
           <div className="branch-header-revenue">
             <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-              Period Revenue
+              Total Period Revenue (Benta)
             </div>
             <div className="stat-value tabular-nums" style={{ color: '#38bdf8' }}>
               {formatPesos(totalSalesC)}
@@ -732,8 +723,8 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
               {activeSales.length} active receipts {data.sales.length > activeSales.length ? `(${data.sales.length - activeSales.length} voided)` : ''}
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginTop: 6 }}>
-              <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: 'var(--accent-emerald)' }}>
-                Cash: {formatPesos(tenderMetrics.cash)}
+              <span className="badge" style={{ fontSize: '0.74rem', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.4)', fontWeight: 800 }}>
+                💵 Cash: {formatPesos(tenderMetrics.cash)}
               </span>
               {tenderMetrics.gcash > 0 && (
                 <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)' }}>
@@ -746,8 +737,8 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
                 </span>
               )}
               {tenderMetrics.utang > 0 && (
-                <span className="badge badge-muted" style={{ fontSize: '0.7rem', color: 'var(--accent-amber)' }}>
-                  Credit: {formatPesos(tenderMetrics.utang)}
+                <span className="badge" style={{ fontSize: '0.74rem', background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', borderColor: 'rgba(245, 158, 11, 0.4)', fontWeight: 800 }}>
+                  ⏳ Utang: {formatPesos(tenderMetrics.utang)}
                 </span>
               )}
             </div>
@@ -937,10 +928,26 @@ export const BranchDetailPage: React.FC<Props> = ({ storeId, from, to, onDateCha
                                 <span className="badge badge-muted" style={{ color: '#f87171' }}>Reversed</span>
                               ) : (
                                 <>
-                                  {s.cash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-emerald)' }}>Cash</span>}
-                                  {s.gcash_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-cyan)' }}>GCash</span>}
-                                  {s.maya_c > 0 && <span className="badge badge-muted" style={{ color: '#34d399' }}>Maya</span>}
-                                  {s.utang_c > 0 && <span className="badge badge-muted" style={{ color: 'var(--accent-amber)' }}>Utang</span>}
+                                  {s.cash_c > 0 && (
+                                    <span className="badge badge-muted" style={{ color: 'var(--accent-emerald)', borderColor: 'rgba(16, 185, 129, 0.3)' }} title={`Cash: ${formatPesos(s.cash_c)}`}>
+                                      Cash {formatPesos(s.cash_c)}
+                                    </span>
+                                  )}
+                                  {s.gcash_c > 0 && (
+                                    <span className="badge badge-muted" style={{ color: 'var(--accent-cyan)' }} title={`GCash: ${formatPesos(s.gcash_c)}`}>
+                                      GCash {formatPesos(s.gcash_c)}
+                                    </span>
+                                  )}
+                                  {s.maya_c > 0 && (
+                                    <span className="badge badge-muted" style={{ color: '#34d399' }} title={`Maya: ${formatPesos(s.maya_c)}`}>
+                                      Maya {formatPesos(s.maya_c)}
+                                    </span>
+                                  )}
+                                  {s.utang_c > 0 && (
+                                    <span className="badge badge-muted" style={{ color: 'var(--accent-amber)', borderColor: 'rgba(245, 158, 11, 0.3)' }} title={`Utang: ${formatPesos(s.utang_c)}`}>
+                                      Utang {formatPesos(s.utang_c)}
+                                    </span>
+                                  )}
                                 </>
                               )}
                             </div>

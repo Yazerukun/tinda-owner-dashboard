@@ -78,12 +78,9 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
     }
   }, [from, to])
 
-  // Auto-refresh countdown every 60s (pauses automatically when tab is inactive)
+  // Auto-refresh countdown every 60s
   useEffect(() => {
     const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.hidden) {
-        return // Paused while tab is backgrounded
-      }
       setAutoRefreshSecs((prev) => {
         if (prev <= 1) {
           loadSummary()
@@ -92,19 +89,7 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
         return prev - 1
       })
     }, 1000)
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        loadSummary()
-        setAutoRefreshSecs(60)
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      clearInterval(timer)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
+    return () => clearInterval(timer)
   }, [from, to])
 
   const setPreset = (preset: 'today' | 'yesterday' | '7days' | 'month' | 'custom') => {
@@ -453,7 +438,7 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
         <div className="card">
           <div className="stat-header">
             <div className="stat-label">
-              <span>💎 Realized Net Sales</span>
+              <span>💎 Total Net Sales (Benta)</span>
             </div>
             <span className="badge badge-live" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
               100% POS Synced
@@ -465,7 +450,13 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
           </div>
 
           <div className="stat-sub">
-            Gross: <strong style={{ color: '#fff' }}>{formatPesos(data?.gross_sales_c ?? totalSales)}</strong>
+            Cash: <strong style={{ color: '#34d399' }}>{formatPesos(cash)}</strong>
+            {utang > 0 && (
+              <> · Utang / Receivables: <strong style={{ color: '#fbbf24' }}>{formatPesos(utang)}</strong></>
+            )}
+            {(gcash > 0 || maya > 0) && (
+              <> · E-Wallet: <strong style={{ color: '#38bdf8' }}>{formatPesos(gcash + maya)}</strong></>
+            )}
             {(data?.discount_c ?? 0) > 0 && (
               <> · Disc: <strong style={{ color: '#f59e0b' }}>-{formatPesos(data?.discount_c ?? 0)}</strong></>
             )}
@@ -498,7 +489,7 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
         <div className="card">
           <div className="stat-header">
             <div className="stat-label">
-              <span>💳 Tender Breakdown</span>
+              <span>💳 Tender Breakdown (Cash vs Utang)</span>
             </div>
             <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
               100% Reconciled
@@ -515,12 +506,12 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
             </div>
 
             <div className="payment-chips">
-              <div className="payment-chip">
+              <div className="payment-chip" style={{ background: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
                 <div className="payment-chip-name">
-                  <span style={{ color: 'var(--accent-emerald)' }}>●</span> Cash
+                  <span style={{ color: 'var(--accent-emerald)' }}>●</span> Actual Cash
                 </div>
-                <div className="payment-chip-amt tabular-nums">{formatPesos(cash)}</div>
-                <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{pctCash}%</div>
+                <div className="payment-chip-amt tabular-nums" style={{ color: '#34d399', fontWeight: 800 }}>{formatPesos(cash)}</div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{pctCash}% of sales</div>
               </div>
 
               <div className="payment-chip">
@@ -539,12 +530,12 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
                 <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{pctMaya}%</div>
               </div>
 
-              <div className="payment-chip">
+              <div className="payment-chip" style={{ background: utang > 0 ? 'rgba(245, 158, 11, 0.1)' : undefined, borderColor: utang > 0 ? 'rgba(245, 158, 11, 0.3)' : undefined }}>
                 <div className="payment-chip-name">
-                  <span style={{ color: 'var(--accent-amber)' }}>●</span> Utang
+                  <span style={{ color: 'var(--accent-amber)' }}>●</span> Utang (Credit)
                 </div>
-                <div className="payment-chip-amt tabular-nums" style={{ color: '#fbbf24' }}>{formatPesos(utang)}</div>
-                <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{pctUtang}%</div>
+                <div className="payment-chip-amt tabular-nums" style={{ color: '#fbbf24', fontWeight: 800 }}>{formatPesos(utang)}</div>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{pctUtang}% collectible</div>
               </div>
             </div>
           </div>
@@ -667,7 +658,17 @@ export const OverviewPage: React.FC<Props> = ({ from, to, onSelectBranch, onDate
                   {formatPesos(b.total_sales_c)}
                 </div>
                 <div style={{ fontSize: '0.70rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Net Sales
+                  Total Sales
+                </div>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 4, fontSize: '0.72rem' }}>
+                  <span style={{ color: '#34d399', fontWeight: 700 }} title="Cash Collected">
+                    Cash: {formatPesos(b.cash_c)}
+                  </span>
+                  {b.utang_c > 0 && (
+                    <span style={{ color: '#fbbf24', fontWeight: 700 }} title="Utang (Receivables)">
+                      · Utang: {formatPesos(b.utang_c)}
+                    </span>
+                  )}
                 </div>
                 <div className="branch-view-cta">
                   <span>View Branch Analytics</span>

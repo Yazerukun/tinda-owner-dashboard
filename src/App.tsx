@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react'
-import { getToken, clearToken, request } from './api'
+import { getToken, clearToken, request, getApiBase, getActiveCloudGateway, subscribeGatewayChange, type ActiveCloudGateway } from './api'
 import { LoginPage } from './pages/LoginPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { BranchDetailPage } from './pages/BranchDetailPage'
 import { AnnouncementBanner } from './pages/AnnouncementBanner'
 import { DownloadModal } from './pages/DownloadModal'
 import { CommunityChatModal } from './pages/CommunityChatModal'
+import { DirectPinModal } from './pages/DirectPinModal'
 import { triggerHaptic } from './utils'
+import type { BranchDetailResponse } from './types'
 import './styles.css'
 
 function getLocalToday(): string {
@@ -19,6 +21,11 @@ function getLocalToday(): string {
 
 export const App: React.FC = () => {
   const [token, setSessionToken] = useState<string | null>(getToken())
+  const [activeGateway, setActiveGateway] = useState<ActiveCloudGateway>(getActiveCloudGateway())
+
+  useEffect(() => {
+    return subscribeGatewayChange((gw) => setActiveGateway(gw))
+  }, [])
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showChatModal, setShowChatModal] = useState(false)
@@ -28,6 +35,109 @@ export const App: React.FC = () => {
   const [fromDate, setFromDate] = useState(today)
   const [toDate, setToDate] = useState(today)
 
+  // Direct Store Portal state (Zero-Pairing with 4-Digit PIN)
+  const [directStoreQuery, setDirectStoreQuery] = useState<string | null>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search)
+      return p.get('store') || p.get('s') || p.get('portal') || null
+    } catch {
+      return null
+    }
+  })
+  const [directStoreMeta, setDirectStoreMeta] = useState<{
+    id: string
+    branch_name: string
+    slug: string | null
+    has_pin: boolean
+  } | null>(null)
+  const [directPortalData, setDirectPortalData] = useState<BranchDetailResponse | null>(null)
+  const [directPinError, setDirectPinError] = useState<string | null>(null)
+  const [directPinLoading, setDirectPinLoading] = useState(false)
+  const [portalUnlocked, setPortalUnlocked] = useState(false)
+
+  // Check if URL has ?store=slug
+  useEffect(() => {
+    if (!directStoreQuery) return
+
+    const lookupStore = async () => {
+      try {
+        setDirectPinLoading(true)
+        const base = getApiBase()
+        const res = await fetch(`${base}/api/portal/lookup?store=${encodeURIComponent(directStoreQuery)}`)
+        const text = await res.text()
+        let data: any
+        try {
+          data = JSON.parse(text)
+        } catch {
+          throw new Error(text || `Server error (${res.status})`)
+        }
+        if (data.ok && data.store) {
+          setDirectStoreMeta(data.store)
+          // If store does not have a PIN configured, unlock immediately!
+          if (!data.store.has_pin) {
+            void executeDirectUnlock('')
+          }
+        } else {
+          setDirectPinError(data.error || 'Store not found.')
+        }
+      } catch (e: any) {
+        setDirectPinError(e.message || 'Failed to connect to server.')
+      } finally {
+        setDirectPinLoading(false)
+      }
+    }
+
+    void lookupStore()
+  }, [directStoreQuery])
+
+  const executeDirectUnlock = async (pinEntered: string) => {
+    if (!directStoreQuery) return
+    setDirectPinLoading(true)
+    setDirectPinError(null)
+
+    try {
+      const base = getApiBase()
+      const res = await fetch(`${base}/api/portal/unlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          store: directStoreQuery,
+          pin: pinEntered,
+          from: fromDate,
+          to: toDate
+        })
+      })
+      const text = await res.text()
+      let data: any
+      try {
+        data = JSON.parse(text)
+      } catch {
+        throw new Error(text || `Server error (${res.status})`)
+      }
+
+      if (data.ok) {
+        triggerHaptic('success')
+        setDirectPortalData(data)
+        setPortalUnlocked(true)
+      } else {
+        triggerHaptic('error')
+        setDirectPinError(data.error || 'Invalid 4-Digit Security PIN.')
+      }
+    } catch (e: any) {
+      setDirectPinError(e.message || 'Network error while unlocking.')
+    } finally {
+      setDirectPinLoading(false)
+    }
+  }
+
+  // Refresh direct portal telemetry when date range changes
+  useEffect(() => {
+    if (portalUnlocked && directStoreQuery) {
+      void executeDirectUnlock('')
+    }
+  }, [fromDate, toDate])
+
+  // Regular account pairing logic
   useEffect(() => {
     if (!token) return
 
@@ -74,6 +184,96 @@ export const App: React.FC = () => {
     clearToken()
     setSessionToken(null)
     setSelectedBranch(null)
+    setPortalUnlocked(false)
+    setDirectStoreQuery(null)
+    setDirectPortalData(null)
+  }
+
+  // If viewing via Direct Store Portal mode
+  if (directStoreQuery) {
+    if (!portalUnlocked && directStoreMeta) {
+      return (
+        <DirectPinModal
+          storeName={directStoreMeta.branch_name}
+          error={directPinError}
+          loading={directPinLoading}
+          onUnlock={executeDirectUnlock}
+          onCancel={() => {
+            setDirectStoreQuery(null)
+            window.history.replaceState({}, '', window.location.pathname)
+          }}
+        />
+      )
+    }
+
+    if (portalUnlocked && directPortalData) {
+      return (
+        <div className="app-container">
+          <header className="app-header">
+            <div className="brand">
+              <div className="brand-icon-box">🏪</div>
+              <div className="brand-title-wrap">
+                <div className="brand-name">
+                  <span>{directPortalData.store.branch_name}</span>
+                  <span className="brand-badge">Direct Portal</span>
+                </div>
+                <div className="brand-subtext">Live Owner Telemetry • PIN Protected</div>
+              </div>
+            </div>
+
+            <div className="header-right">
+              <button
+                onClick={() => executeDirectUnlock('')}
+                className="btn btn-secondary btn-sm header-action-btn"
+                title="Refresh Live Sales"
+              >
+                🔄 Refresh
+              </button>
+              <button
+                onClick={handleLogout}
+                className="btn btn-secondary btn-sm"
+                title="Exit Direct Portal"
+              >
+                Exit Portal
+              </button>
+            </div>
+          </header>
+
+          {(directPortalData as any)._notice && (
+            <div style={{
+              background: 'rgba(245, 158, 11, 0.12)',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              borderRadius: 12,
+              padding: '10px 16px',
+              margin: '12px 16px 0',
+              fontSize: '0.82rem',
+              color: '#fcd34d',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}>
+              <span>⚡</span>
+              <span>{(directPortalData as any)._notice}</span>
+            </div>
+          )}
+
+          <main>
+            <BranchDetailPage
+              storeId={directPortalData.store.id}
+              from={fromDate}
+              to={toDate}
+              onDateChange={(f, t) => {
+                setFromDate(f)
+                setToDate(t)
+              }}
+              onBack={() => {}}
+              portalData={directPortalData}
+              onRefreshPortal={() => executeDirectUnlock('')}
+            />
+          </main>
+        </div>
+      )
+    }
   }
 
   if (!token) {
@@ -85,15 +285,13 @@ export const App: React.FC = () => {
       {/* Top Apple Chrome Header */}
       <header className="app-header">
         <div className="brand" onClick={() => setSelectedBranch(null)}>
-          <div className="brand-icon-box">
-            🏪
-          </div>
+          <div className="brand-icon-box">🏪</div>
           <div className="brand-title-wrap">
             <div className="brand-name">
               <span>TINDA POS</span>
               <span className="brand-badge">Cloud</span>
             </div>
-            <div className="brand-subtext">Executive Sales Telemetry • v3.0.2</div>
+            <div className="brand-subtext">Executive Sales Telemetry • v1.0.54</div>
           </div>
         </div>
 
@@ -106,7 +304,7 @@ export const App: React.FC = () => {
             className="btn btn-secondary btn-sm header-action-btn"
             title="Download TINDA POS Desktop Release"
           >
-            📥 v3.0.2 App
+            📥 v1.0.54 App
           </button>
 
           <button
@@ -120,9 +318,9 @@ export const App: React.FC = () => {
             💬 Broadcast
           </button>
 
-          <div className="live-beacon">
-            <span className="beacon-dot" />
-            <span>Connected</span>
+          <div className="live-beacon" title={activeGateway === 'supabase' ? 'Dual-Cloud Failover Active (Supabase PostgreSQL)' : 'Primary Cloud Active (Cloudflare D1)'}>
+            <span className="beacon-dot" style={{ backgroundColor: activeGateway === 'supabase' ? '#38bdf8' : '#10b981' }} />
+            <span>{activeGateway === 'supabase' ? 'Supabase Cloud' : 'Cloudflare D1'}</span>
           </div>
 
           <button onClick={handleLogout} className="btn btn-secondary btn-sm" title="Sign out of owner dashboard">

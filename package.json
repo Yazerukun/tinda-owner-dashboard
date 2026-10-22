@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "deploy": "tsc -b && vite build && wrangler pages deploy dist --project-name=tinda-owner-dashboard --branch=main",
+    "deploy": "tsc -b && vite build && npx wrangler pages deploy dist --project-name=tinda-owner-dashboard --branch=main",
     "preview": "vite preview"
   },
   "dependencies": {

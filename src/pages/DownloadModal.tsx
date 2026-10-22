@@ -5,33 +5,33 @@ interface Props {
 }
 
 export const DownloadModal: React.FC<Props> = ({ onClose }) => {
-  const version = 'v3.0.2'
-  const releaseUrl = 'https://github.com/Yazerukun/TINDA-POS/releases/tag/v3.0.2'
+  const version = 'v1.0.54'
+  const releaseUrl = 'https://github.com/Yazerukun/TINDA-POS/releases/tag/v1.0.54'
 
   const downloadLinks = [
     {
       name: 'Windows Installer (Setup)',
-      file: 'TindaPOS-Setup-3.0.2.exe',
+      file: 'TindaPOS-Setup-1.0.54.exe',
       size: '107 MB',
       icon: '🪟',
       desc: 'Recommended for Windows 10/11 desktop PCs & POS touch terminals.',
-      url: `https://github.com/Yazerukun/TINDA-POS/releases/download/${version}/TindaPOS-Setup-3.0.2.exe`
+      url: `https://github.com/Yazerukun/TINDA-POS/releases/download/${version}/TindaPOS-Setup-1.0.54.exe`
     },
     {
       name: 'Windows Portable (No Install)',
-      file: 'TindaPOS-Portable-3.0.2.exe',
+      file: 'TindaPOS-Portable-1.0.54.exe',
       size: '107 MB',
       icon: '💼',
       desc: 'Run directly from a USB flash drive or folder without administrator setup.',
-      url: `https://github.com/Yazerukun/TINDA-POS/releases/download/${version}/TindaPOS-Portable-3.0.2.exe`
+      url: `https://github.com/Yazerukun/TINDA-POS/releases/download/${version}/TindaPOS-Portable-1.0.54.exe`
     },
     {
       name: 'Linux AppImage (Universal)',
-      file: 'TindaPOS-3.0.2.AppImage',
-      size: '134 MB',
+      file: 'TindaPOS-1.0.54.AppImage',
+      size: '130 MB',
       icon: '🐧',
       desc: 'Universal portable Linux executable for Omarchy, Ubuntu, Debian, and Arch.',
-      url: `https://github.com/Yazerukun/TINDA-POS/releases/download/${version}/TindaPOS-3.0.2.AppImage`
+      url: `https://github.com/Yazerukun/TINDA-POS/releases/download/${version}/TindaPOS-1.0.54.AppImage`
     }
   ]
 
@@ -49,7 +49,7 @@ export const DownloadModal: React.FC<Props> = ({ onClose }) => {
                 <span className="badge badge-live" style={{ fontSize: '0.72rem' }}>{version}</span>
               </h3>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                Production Release • Oct 17, 2026
+                Production Release • Oct 4, 2026
               </p>
             </div>
           </div>
@@ -81,13 +81,13 @@ export const DownloadModal: React.FC<Props> = ({ onClose }) => {
           marginBottom: 18
         }}>
           <div style={{ fontWeight: 700, fontSize: '0.84rem', color: '#38bdf8', marginBottom: 4 }}>
-            ✨ What's New in v3.0.2:
+            ✨ What's New in v1.0.54:
           </div>
           <ul style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', paddingLeft: 18, lineHeight: 1.5 }}>
-            <li><strong style={{ color: '#fff' }}>Unbreakable Cloud Sync:</strong> Cloudflare R2 high-speed snapshot architecture with zero quota limits.</li>
-            <li><strong style={{ color: '#fff' }}>Atomic Batch Sync:</strong> Resilient background batch queuing ensures no offline sales are ever lost.</li>
-            <li><strong style={{ color: '#fff' }}>Multi-Cashier Accounts:</strong> Role-based access with individual login PINs and security audit trails.</li>
+            <li><strong style={{ color: '#fff' }}>Multi-Cashier Accounts:</strong> Role-based access (Owner, Supervisor, Cashier) with individual login PINs.</li>
+            <li><strong style={{ color: '#fff' }}>Modern Categorized Sidebar:</strong> Quick navigation by Operations, Inventory & Financials, and System.</li>
             <li><strong style={{ color: '#fff' }}>Target Quota Shift Tracking:</strong> Live shift target status and reconciliation audits.</li>
+            <li><strong style={{ color: '#fff' }}>VIP E-Wallet Hub:</strong> GCash & Maya Cash-In/Out with service fee profit tracking.</li>
           </ul>
         </div>
 

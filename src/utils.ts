@@ -4,12 +4,13 @@ import { formatPesos } from './api'
 /**
  * Trigger subtle physical tactile haptics on mobile devices
  */
-export function triggerHaptic(type: 'light' | 'medium' | 'success' = 'light') {
+export function triggerHaptic(type: 'light' | 'medium' | 'success' | 'error' = 'light') {
   if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
     try {
       if (type === 'light') navigator.vibrate(8)
       else if (type === 'medium') navigator.vibrate(15)
       else if (type === 'success') navigator.vibrate([10, 30, 10])
+      else if (type === 'error') navigator.vibrate([30, 40, 30])
     } catch {
       // Ignore vibration errors if not supported
     }

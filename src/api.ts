@@ -192,11 +192,21 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
     return { ok: true, token, expiresIn: 86400 } as T
   }
 
-  const toLocalDay = (iso: string | null | undefined): string => {
-    if (!iso) return ''
-    const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})/)
-    if (match) return `${match[1]}-${match[2]}-${match[3]}`
-    return (iso || '').slice(0, 10)
+  const toLocalDay = (str: string | null | undefined): string => {
+    if (!str) return ''
+    try {
+      const iso = str.includes('T') ? str : str.replace(' ', 'T') + '+00:00'
+      const d = new Date(iso)
+      if (isNaN(d.getTime())) return (str || '').slice(0, 10)
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(d)
+    } catch {
+      return (str || '').slice(0, 10)
+    }
   }
 
   // 1. Overview Summary: /api/owner/summary?from=...&to=...

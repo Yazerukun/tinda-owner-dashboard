@@ -373,7 +373,7 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
     const store = storeArr[0] || { id: storeId, branch_name: 'Store', last_sale_at: null, last_sync_at: null }
 
     // Fetch sales for this store
-    let salesQuery = `${SUPABASE_CONFIG.url}/rest/v1/sales?store_id=eq.${storeId}&select=*&order=sold_at.desc&limit=1000`
+    let salesQuery = `${SUPABASE_CONFIG.url}/rest/v1/sales?store_id=eq.${storeId}&select=*,sale_items(product_name,qty,unit_name)&order=sold_at.desc&limit=1000`
     const salesRes = await fetch(salesQuery, { headers: supaHeaders })
     const allStoreSales = (salesRes.ok ? await salesRes.json() : []) as any[]
     
@@ -529,7 +529,9 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
         utang_c: s.utang_c,
         status: s.status,
         sold_at: s.sold_at,
-        items_summary: null
+        items_summary: (s.sale_items && s.sale_items.length > 0)
+          ? s.sale_items.map((it: any) => `${it.product_name} ×${it.qty}`).join(', ')
+          : (s.items_summary || null)
       })),
       stockMovements: movements,
       shifts,

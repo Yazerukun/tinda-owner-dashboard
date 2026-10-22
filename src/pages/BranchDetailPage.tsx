@@ -37,6 +37,7 @@ export const BranchDetailPage: React.FC<Props> = ({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [salesSearch, setSalesSearch] = useState('')
+  const [expandedSaleId, setExpandedSaleId] = useState<number | null>(null)
   const [copiedId, setCopiedId] = useState(false)
   const [copiedRestock, setCopiedRestock] = useState(false)
   const [showLowStockModal, setShowLowStockModal] = useState(false)
@@ -996,9 +997,32 @@ export const BranchDetailPage: React.FC<Props> = ({
                               </div>
                             )}
                           </td>
-                          <td>
-                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: isVoided ? 'line-through' : 'none' }} title={s.items_summary || ''}>
+                          <td
+                            style={{ cursor: s.items_summary ? 'pointer' : 'default', verticalAlign: 'top' }}
+                            onClick={() => {
+                              if (s.items_summary) {
+                                triggerHaptic('light')
+                                setExpandedSaleId(expandedSaleId === s.id ? null : s.id)
+                              }
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: '0.78rem',
+                                color: isVoided ? '#94a3b8' : '#e2e8f0',
+                                maxWidth: expandedSaleId === s.id ? 'none' : 320,
+                                whiteSpace: expandedSaleId === s.id ? 'normal' : 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                lineHeight: 1.45,
+                                textDecoration: isVoided ? 'line-through' : 'none'
+                              }}
+                              title={s.items_summary ? `${s.items_summary} (Tap to expand/collapse)` : 'No items recorded'}
+                            >
                               {s.items_summary || '—'}
+                              {s.items_summary && s.items_summary.length > 35 && expandedSaleId !== s.id && (
+                                <span style={{ color: '#38bdf8', fontSize: '0.70rem', marginLeft: 4, fontWeight: 600 }}>+more</span>
+                              )}
                             </div>
                           </td>
                           <td>

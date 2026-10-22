@@ -194,17 +194,9 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
 
   const toLocalDay = (iso: string | null | undefined): string => {
     if (!iso) return ''
-    try {
-      const cleanIso = iso.includes(' ') && !iso.includes('T') ? iso.replace(' ', 'T') : iso
-      const d = new Date(cleanIso)
-      if (isNaN(d.getTime())) return iso.slice(0, 10)
-      const y = d.getFullYear()
-      const m = String(d.getMonth() + 1).padStart(2, '0')
-      const day = String(d.getDate()).padStart(2, '0')
-      return `${y}-${m}-${day}`
-    } catch {
-      return (iso || '').slice(0, 10)
-    }
+    const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})/)
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`
+    return (iso || '').slice(0, 10)
   }
 
   // 1. Overview Summary: /api/owner/summary?from=...&to=...
@@ -430,6 +422,8 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
 
     // Calculate financials for active filtered period
     let totSales = 0
+    let grossSales = 0
+    let totDiscount = 0
     let cash = 0
     let gcash = 0
     let maya = 0
@@ -441,6 +435,8 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
     for (const s of sales) {
       if (s.status === 'COMPLETED') {
         totSales += Number(s.total_c || 0)
+        grossSales += Number(s.subtotal_c || s.total_c || 0)
+        totDiscount += Number(s.discount_c || 0)
         cash += Number(s.cash_c || 0)
         gcash += Number(s.gcash_c || 0)
         maya += Number(s.maya_c || 0)
@@ -509,8 +505,8 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
       store,
       periodFinancials: {
         total_sales_c: totSales,
-        gross_sales_c: totSales,
-        discount_c: 0,
+        gross_sales_c: grossSales,
+        discount_c: totDiscount,
         cash_c: cash,
         gcash_c: gcash,
         maya_c: maya,
@@ -669,18 +665,15 @@ export function formatPesos(centavos: number | null | undefined): string {
 
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return 'Never'
-  try {
-    const cleanIso = iso.includes(' ') && !iso.includes('T') ? iso.replace(' ', 'T') : iso
-    const d = new Date(cleanIso)
-    if (isNaN(d.getTime())) return iso
-    return d.toLocaleString('en-PH', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    })
-  } catch {
-    return iso
+  // Handle wall-clock ISO strings (YYYY-MM-DD HH:mm:ss or YYYY-MM-DDTHH:mm:ss) without double-shifting timezone
+  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/)
+  if (match) {
+    const [_, y, m, d, hh, mm] = match
+    const hNum = Number(hh)
+    const ampm = hNum >= 12 ? 'PM' : 'AM'
+    const h12 = hNum % 12 || 12
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    return `${monthNames[Number(m) - 1]} ${Number(d)}, ${h12}:${mm} ${ampm}`
   }
+  return iso.slice(0, 16)
 }

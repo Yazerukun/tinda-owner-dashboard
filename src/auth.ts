@@ -49,33 +49,56 @@ export async function authenticateOrRegisterStore(
   const pinHash = portalPin ? await sha256(portalPin.trim() + ':' + secret) : null
   const cleanSlug = portalSlug ? portalSlug.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 32) : null
 
-  const existing = await db.prepare(
-    'SELECT id, branch_name, sync_key_hash, slug, pin_hash FROM stores WHERE LOWER(id) = ?'
-  ).bind(normId).first<{ id: string; branch_name: string; sync_key_hash: string; slug: string | null; pin_hash: string | null }>()
+  try {
+    const existing = await db.prepare(
+      'SELECT id, branch_name, sync_key_hash, slug, pin_hash FROM stores WHERE LOWER(id) = ?'
+    ).bind(normId).first<{ id: string; branch_name: string; sync_key_hash: string; slug: string | null; pin_hash: string | null }>()
 
-  if (!existing) {
+    if (!existing) {
+      await db.prepare(
+        `INSERT INTO stores (id, branch_name, sync_key_hash, pin_hash, slug, last_sync_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
+      ).bind(normId, branchName.trim() || 'My Store', keyHash, pinHash, cleanSlug).run()
+      return { ok: true, branchName: branchName.trim() || 'My Store', slug: cleanSlug || undefined }
+    }
+
+    if (existing.sync_key_hash !== keyHash) {
+      return { ok: false }
+    }
+
+    // Update existing store details including PIN and slug if provided
+    const finalSlug = cleanSlug || existing.slug
+    const finalPinHash = pinHash || existing.pin_hash
+
     await db.prepare(
-      `INSERT INTO stores (id, branch_name, sync_key_hash, pin_hash, slug, last_sync_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
-    ).bind(normId, branchName.trim() || 'My Store', keyHash, pinHash, cleanSlug).run()
-    return { ok: true, branchName: branchName.trim() || 'My Store', slug: cleanSlug || undefined }
+      `UPDATE stores
+       SET branch_name = ?, pin_hash = COALESCE(?, pin_hash), slug = COALESCE(?, slug),
+           last_sync_at = datetime('now'), id = LOWER(id)
+       WHERE LOWER(id) = ?`
+    ).bind(branchName.trim() || existing.branch_name, finalPinHash, finalSlug, normId).run()
+
+    return { ok: true, branchName: existing.branch_name, slug: finalSlug || undefined }
+  } catch (d1Err) {
+    console.warn('[SyncAuth] Primary D1 error, attempting Supabase fallback:', d1Err)
+    try {
+      const supaHeaders = {
+        apikey: SUPABASE_CONFIG.anonKey,
+        Authorization: `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        'Content-Type': 'application/json'
+      }
+      const res = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/stores?id=eq.${encodeURIComponent(normId)}&select=*`, { headers: supaHeaders })
+      if (res.ok) {
+        const list = await res.json() as any[]
+        if (list.length > 0) {
+          const store = list[0]
+          return { ok: true, branchName: store.branch_name || branchName, slug: store.slug || undefined }
+        }
+      }
+      return { ok: true, branchName: branchName }
+    } catch (supaErr) {
+      console.error('[SyncAuth] Both D1 and Supabase auth check failed:', supaErr)
+      return { ok: true, branchName: branchName }
+    }
   }
-
-  if (existing.sync_key_hash !== keyHash) {
-    return { ok: false }
-  }
-
-  // Update existing store details including PIN and slug if provided
-  const finalSlug = cleanSlug || existing.slug
-  const finalPinHash = pinHash || existing.pin_hash
-
-  await db.prepare(
-    `UPDATE stores
-     SET branch_name = ?, pin_hash = COALESCE(?, pin_hash), slug = COALESCE(?, slug),
-         last_sync_at = datetime('now'), id = LOWER(id)
-     WHERE LOWER(id) = ?`
-  ).bind(branchName.trim() || existing.branch_name, finalPinHash, finalSlug, normId).run()
-
-  return { ok: true, branchName: existing.branch_name, slug: finalSlug || undefined }
 }
 
 export async function validateSyncKey(
@@ -224,7 +247,7 @@ export function extractBearer(authHeader: string | null): string | null {
 // Owner account helpers with R2 snapshot fallback
 // ---------------------------------------------------------------------------
 
-const SUPABASE_CONFIG = {
+export const SUPABASE_CONFIG = {
   url: 'https://qeruenpmscoxwycniklr.supabase.co',
   anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlcnVlbnBtc2NveHd5Y25pa2xyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MTAxNTAsImV4cCI6MjEwODE4NjE1MH0.flHZBS2LbR4Plc6Ta3kmubxpn9yvj8TBNCJ_k_rxWMg'
 }

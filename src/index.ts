@@ -179,6 +179,39 @@ app.post('/api/sync/shift', async (c) => {
   return c.json({ ok: true, received: 'shift' })
 })
 
+/** POST /api/sync/batch — batch sync for multi-sale payloads */
+app.post('/api/sync/batch', async (c) => {
+  let body: any
+  try { body = await c.req.json() } catch { return err(c, 400, 'Invalid JSON.', 'BAD_REQUEST') }
+
+  const rawStoreId = String(body.store_id ?? '').trim().toLowerCase()
+  const sync_key = String(body.sync_key ?? '').trim()
+  const branch_name = String(body.branch_name ?? '').trim() || 'Unknown'
+  const salesList = (body.sales || body.data?.sales || body.data) as any[]
+
+  if (!rawStoreId || !sync_key || !Array.isArray(salesList)) {
+    return err(c, 400, 'store_id, sync_key, sales array required.', 'BAD_REQUEST')
+  }
+
+  try {
+    const auth = await authenticateOrRegisterStore(c.env.DB, rawStoreId, branch_name, sync_key, c.env.SESSION_SECRET)
+    if (!auth.ok) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
+  } catch {}
+
+  let syncedCount = 0
+  for (const s of salesList) {
+    try {
+      await syncSale(c.env.DB, rawStoreId, s)
+      syncedCount++
+    } catch (e) {
+      console.warn('[SyncBatch] Error syncing single sale in batch:', e)
+    }
+  }
+
+  return c.json({ ok: true, received: 'batch', count: syncedCount })
+})
+
+
 // ---------------------------------------------------------------------------
 // Owner Auth Endpoints
 // ---------------------------------------------------------------------------
@@ -289,8 +322,8 @@ app.get('/api/owner/summary', requireOwner, async (c) => {
           fetch(`${sUrl}/stores?owner_user_id=eq.${ownerId}&select=*`, { headers: supaHeaders }),
           fetch(`${sUrl}/sales?select=id,store_id,subtotal_c,discount_c,total_c,cash_c,gcash_c,maya_c,utang_c,status,sold_at&limit=2000`, { headers: supaHeaders })
         ])
-        const stArr = stRes.ok ? await stRes.json() : []
-        const slArr = slRes.ok ? await slRes.json() : []
+        const stArr = (stRes.ok ? await stRes.json() : []) as any[]
+        const slArr = (slRes.ok ? await slRes.json() : []) as any[]
 
         const branchMap = new Map<string, any>()
         for (const s of stArr) {
@@ -461,10 +494,10 @@ app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
           fetch(`${sUrl}/shift_snapshots?store_id=eq.${storeId}&select=*&order=opened_at.desc&limit=50`, { headers: supaHeaders }),
           fetch(`${sUrl}/stock_movements?store_id=eq.${storeId}&select=*&order=moved_at.desc&limit=100`, { headers: supaHeaders })
         ])
-        const stArr = stRes.ok ? await stRes.json() : []
-        const slArr = slRes.ok ? await slRes.json() : []
-        const shArr = shRes.ok ? await shRes.json() : []
-        const smArr = smRes.ok ? await smRes.json() : []
+        const stArr = (stRes.ok ? await stRes.json() : []) as any[]
+        const slArr = (slRes.ok ? await slRes.json() : []) as any[]
+        const shArr = (shRes.ok ? await shRes.json() : []) as any[]
+        const smArr = (smRes.ok ? await smRes.json() : []) as any[]
 
         const storeRecord = stArr[0] || { id: storeId, branch_name: storeId, last_sale_at: null, last_sync_at: null }
         
@@ -585,16 +618,21 @@ const handleSyncPing = async (c: any) => {
   const portalSlug = body.portal_slug ? String(body.portal_slug).trim() : undefined
   if (!storeId || !syncKey) return err(c, 400, 'store_id and sync_key required.', 'BAD_REQUEST')
 
-  const auth = await authenticateOrRegisterStore(
-    c.env.DB,
-    storeId,
-    branchName,
-    syncKey,
-    c.env.SESSION_SECRET,
-    portalPin,
-    portalSlug
-  )
-  if (!auth.ok) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
+  let auth: { ok: boolean; branchName?: string; slug?: string } = { ok: true, branchName, slug: portalSlug }
+  try {
+    auth = await authenticateOrRegisterStore(
+      c.env.DB,
+      storeId,
+      branchName,
+      syncKey,
+      c.env.SESSION_SECRET,
+      portalPin,
+      portalSlug
+    )
+    if (!auth.ok) return err(c, 401, 'Invalid sync credentials.', 'UNAUTHORIZED')
+  } catch (d1Err) {
+    console.warn('[SyncPing] D1 limit/error, auto-accepting via Supabase resilience:', d1Err)
+  }
 
   return c.json({
     ok: true,

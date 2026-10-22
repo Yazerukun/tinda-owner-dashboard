@@ -224,6 +224,11 @@ export function extractBearer(authHeader: string | null): string | null {
 // Owner account helpers with R2 snapshot fallback
 // ---------------------------------------------------------------------------
 
+const SUPABASE_CONFIG = {
+  url: 'https://qeruenpmscoxwycniklr.supabase.co',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlcnVlbnBtc2NveHd5Y25pa2xyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MTAxNTAsImV4cCI6MjEwODE4NjE1MH0.flHZBS2LbR4Plc6Ta3kmubxpn9yvj8TBNCJ_k_rxWMg'
+}
+
 export async function findOwnerByUsername(
   db: D1Database,
   username: string,
@@ -249,7 +254,25 @@ export async function findOwnerByUsername(
     console.warn('D1 findOwner error (likely quota exceeded):', d1Err?.message || d1Err)
   }
 
-  // 2. Fallback to R2 bucket if D1 failed or hit quota
+  // 2. Fallback to Supabase PostgreSQL (High-Availability Cloud)
+  try {
+    const supaRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/owner_users?username=eq.${encodeURIComponent(normUser)}&select=*`, {
+      headers: {
+        apikey: SUPABASE_CONFIG.anonKey,
+        Authorization: `Bearer ${SUPABASE_CONFIG.anonKey}`
+      }
+    })
+    if (supaRes.ok) {
+      const records = (await supaRes.json()) as OwnerUserRecord[]
+      if (records && records.length > 0 && records[0].password_hash) {
+        return records[0]
+      }
+    }
+  } catch (supaErr) {
+    console.warn('Supabase findOwner error:', supaErr)
+  }
+
+  // 3. Fallback to R2 bucket if D1 and Supabase failed
   if (r2) {
     try {
       const obj = await r2.get(`owners/${normUser}.json`)

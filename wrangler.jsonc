@@ -12,13 +12,6 @@
     }
   ],
 
-  "r2_buckets": [
-    {
-      "binding": "SNAPSHOTS",
-      "bucket_name": "tinda-pos-snapshots"
-    }
-  ],
-
   "vars": {
     "ENVIRONMENT": "development",
     "SESSION_SECRET": "change-this-in-production-use-wrangler-secret"

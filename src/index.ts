@@ -457,7 +457,7 @@ app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
         const sUrl = 'https://qeruenpmscoxwycniklr.supabase.co/rest/v1'
         const [stRes, slRes, shRes, smRes] = await Promise.all([
           fetch(`${sUrl}/stores?id=eq.${storeId}&select=*`, { headers: supaHeaders }),
-          fetch(`${sUrl}/sales?store_id=eq.${storeId}&select=*&order=sold_at.desc&limit=1000`, { headers: supaHeaders }),
+          fetch(`${sUrl}/sales?store_id=eq.${storeId}&select=*,sale_items(product_name,qty,unit_name)&order=sold_at.desc&limit=1000`, { headers: supaHeaders }),
           fetch(`${sUrl}/shift_snapshots?store_id=eq.${storeId}&select=*&order=opened_at.desc&limit=50`, { headers: supaHeaders }),
           fetch(`${sUrl}/stock_movements?store_id=eq.${storeId}&select=*&order=moved_at.desc&limit=100`, { headers: supaHeaders })
         ])
@@ -490,7 +490,12 @@ app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
           if (from && dStr < from) return false
           if (to && dStr > to) return false
           return true
-        })
+        }).map((s: any) => ({
+          ...s,
+          items_summary: (s.sale_items && s.sale_items.length > 0)
+            ? s.sale_items.map((it: any) => `${it.product_name} ×${it.qty}`).join(', ')
+            : (s.items_summary || null)
+        }))
 
         for (const s of periodSales) {
           if (s.status === 'COMPLETED') {

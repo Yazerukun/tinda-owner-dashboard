@@ -115,6 +115,13 @@ export function exportShiftsToCsv(shifts: ShiftRow[], branchName: string, dateRa
 /**
  * Return today's date formatted as YYYY-MM-DD in local time
  */
+export function getLocalMonthStart(): string {
+  const d = new Date()
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  return `${year}-${month}-01`
+}
+
 export function getLocalToday(): string {
   const d = new Date()
   const year = d.getFullYear()

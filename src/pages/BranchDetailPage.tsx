@@ -793,7 +793,7 @@ export const BranchDetailPage: React.FC<Props> = ({
             {data.dailyTotals.map((d, idx) => {
               const heightPct = Math.max(Math.round((d.total_c / maxDailyC) * 100), 6)
               return (
-                <div key={idx} className="chart-bar-col" title={`${d.day}: ${formatPesos(d.total_c)} (${d.count} sales)`}>
+                <div key={idx} className="chart-bar-col" title={`${d.day}: ${formatPesos(d.total_c)} (${d.count} sales) - Tap to inspect`} onClick={() => { triggerHaptic('light'); onDateChange(d.day, d.day); }} style={{ cursor: 'pointer' }}>
                   <div className="chart-bar-fill" style={{ height: `${heightPct}%` }} />
                   <div className="chart-bar-label">
                     {d.day.split('-').slice(1).join('/')}
@@ -801,6 +801,53 @@ export const BranchDetailPage: React.FC<Props> = ({
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Smart Zero Sales Helper Banner */}
+      {!loading && activeSales.length === 0 && (
+        <div style={{
+          background: 'rgba(59, 130, 246, 0.08)',
+          border: '1px solid rgba(59, 130, 246, 0.25)',
+          borderRadius: 12,
+          padding: '14px 18px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12
+        }}>
+          <div>
+            <div style={{ fontWeight: 700, color: '#93c5fd', fontSize: '0.90rem', marginBottom: 2 }}>
+              ℹ️ No sales recorded for {isSingleDay && from === today ? 'Today' : formatHumanDate(from)}
+            </div>
+            <div style={{ fontSize: '0.80rem', color: '#cbd5e1' }}>
+              {data?.dailyTotals && data.dailyTotals.length > 0 ? (
+                <>This branch has <strong>{data.dailyTotals.reduce((a, b) => a + b.count, 0)} transactions</strong> recorded across {data.dailyTotals.length} active days this month.</>
+              ) : (
+                <>No sales found in this selected timeframe.</>
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setPreset('month')}
+              className="btn btn-primary btn-sm"
+              style={{ fontSize: '0.78rem', padding: '6px 14px' }}
+            >
+              🗓️ View This Month ({data?.dailyTotals?.length || 0} Days)
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreset('yesterday')}
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: '0.78rem', padding: '6px 14px' }}
+            >
+              📅 View Yesterday
+            </button>
           </div>
         </div>
       )}

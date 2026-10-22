@@ -316,6 +316,9 @@ app.get('/api/owner/summary', requireOwner, async (c) => {
         for (const sale of slArr) {
           const b = branchMap.get(sale.store_id)
           if (!b) continue
+          const dStr = (sale.sold_at || '').slice(0, 10)
+          if (from && dStr < from) continue
+          if (to && dStr > to) continue
           if (sale.status === 'COMPLETED') {
             tot += Number(sale.total_c || 0)
             csh += Number(sale.cash_c || 0)
@@ -465,17 +468,12 @@ app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
 
         const storeRecord = stArr[0] || { id: storeId, branch_name: storeId, last_sale_at: null, last_sync_at: null }
         
-        let tot = 0, csh = 0, gch = 0, mya = 0, utg = 0, txC = 0, vCount = 0, vTot = 0
+        let tot = 0, grossTot = 0, discTot = 0, csh = 0, gch = 0, mya = 0, utg = 0, txC = 0, vCount = 0, vTot = 0
         const dMap = new Map<string, { total_c: number; count: number }>()
 
+        // 1. Calculate daily volume trend across all historical sales
         for (const s of slArr) {
           if (s.status === 'COMPLETED') {
-            tot += Number(s.total_c || 0)
-            csh += Number(s.cash_c || 0)
-            gch += Number(s.gcash_c || 0)
-            mya += Number(s.maya_c || 0)
-            utg += Number(s.utang_c || 0)
-            txC++
             const dStr = (s.sold_at || '').slice(0, 10)
             if (dStr) {
               const cur = dMap.get(dStr) || { total_c: 0, count: 0 }
@@ -483,6 +481,27 @@ app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
               cur.count++
               dMap.set(dStr, cur)
             }
+          }
+        }
+
+        // 2. Filter sales strictly for the requested [from, to] period
+        const periodSales = slArr.filter((s: any) => {
+          const dStr = (s.sold_at || '').slice(0, 10)
+          if (from && dStr < from) return false
+          if (to && dStr > to) return false
+          return true
+        })
+
+        for (const s of periodSales) {
+          if (s.status === 'COMPLETED') {
+            tot += Number(s.total_c || 0)
+            grossTot += Number(s.subtotal_c || s.total_c || 0)
+            discTot += Number(s.discount_c || 0)
+            csh += Number(s.cash_c || 0)
+            gch += Number(s.gcash_c || 0)
+            mya += Number(s.maya_c || 0)
+            utg += Number(s.utang_c || 0)
+            txC++
           } else if (s.status === 'VOIDED') {
             vCount++
             vTot += Number(s.total_c || 0)
@@ -500,8 +519,8 @@ app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
           store: storeRecord,
           periodFinancials: {
             total_sales_c: tot,
-            gross_sales_c: tot,
-            discount_c: 0,
+            gross_sales_c: grossTot,
+            discount_c: discTot,
             cash_c: csh,
             gcash_c: gch,
             maya_c: mya,
@@ -510,7 +529,7 @@ app.get('/api/owner/branch/:store_id', requireOwner, async (c) => {
             void_count: vCount,
             void_total_c: vTot
           },
-          sales: slArr,
+          sales: periodSales,
           stockMovements: smArr,
           shifts: shArr,
           topProducts: [],

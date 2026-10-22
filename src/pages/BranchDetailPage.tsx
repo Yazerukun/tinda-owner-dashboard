@@ -886,7 +886,39 @@ export const BranchDetailPage: React.FC<Props> = ({
                   {filteredSales.length === 0 ? (
                     <tr>
                       <td colSpan={5} style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-secondary)' }}>
-                        No transactions found matching this query or date range.
+                        <div style={{ fontSize: '1.8rem', marginBottom: 8 }}>🛒</div>
+                        <div style={{ fontWeight: 700, color: '#fff', marginBottom: 4 }}>
+                          {isSingleDay && from === today ? "No transactions recorded yet for Today." : "No transactions found for this date range."}
+                        </div>
+                        <div style={{ fontSize: '0.82rem', marginBottom: 12 }}>
+                          {isSingleDay && from === today ? "Tap a preset below to inspect previous store sales & records:" : "Try selecting a broader date period or preset:"}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            onClick={() => setPreset('yesterday')}
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '0.78rem' }}
+                          >
+                            📅 Yesterday
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPreset('7days')}
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '0.78rem' }}
+                          >
+                            📊 Past 7 Days
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPreset('month')}
+                            className="btn btn-primary btn-sm"
+                            style={{ fontSize: '0.78rem' }}
+                          >
+                            🗓️ This Month ({data.dailyTotals ? data.dailyTotals.length : ''} Days with Sales)
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ) : (

@@ -191,23 +191,88 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
     return { ok: true, token, expiresIn: 86400 } as T
   }
 
+  const toLocalDay = (iso: string | null | undefined): string => {
+    if (!iso) return ''
+    try {
+      const cleanIso = iso.includes(' ') && !iso.includes('T') ? iso.replace(' ', 'T') : iso
+      const d = new Date(cleanIso)
+      if (isNaN(d.getTime())) return iso.slice(0, 10)
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    } catch {
+      return (iso || '').slice(0, 10)
+    }
+  }
+
   // 1. Overview Summary: /api/owner/summary?from=...&to=...
   if (endpoint.startsWith('/api/owner/summary')) {
     const urlObj = new URL('http://dummy' + endpoint)
     const from = urlObj.searchParams.get('from') || ''
     const to = urlObj.searchParams.get('to') || ''
 
-    // Fetch all registered branches/stores
-    const storesRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/stores?select=*`, { headers: supaHeaders })
-    const stores = (storesRes.ok ? await storesRes.json() : []) as any[]
+    const token = getToken()
+    let loggedInOwnerId: number | null = null
+    if (token?.startsWith('v2.')) {
+      const parts = token.split('.')
+      loggedInOwnerId = parseInt(parts[1], 10)
+    }
 
-    // Fetch sales within date window
-    let salesQuery = `${SUPABASE_CONFIG.url}/rest/v1/sales?select=id,store_id,subtotal_c,discount_c,total_c,cash_c,gcash_c,maya_c,utang_c,status,sold_at&order=sold_at.desc&limit=1000`
-    if (from) salesQuery += `&sold_at=gte.${from}T00:00:00`
-    if (to) salesQuery += `&sold_at=lte.${to}T23:59:59`
+    // Fetch stores owned by this owner
+    let storesUrl = `${SUPABASE_CONFIG.url}/rest/v1/stores?select=*`
+    if (loggedInOwnerId && loggedInOwnerId > 0) {
+      storesUrl += `&owner_user_id=eq.${loggedInOwnerId}`
+    }
 
+    let storesRes = await fetch(storesUrl, { headers: supaHeaders })
+    let stores = (storesRes.ok ? await storesRes.json() : []) as any[]
+
+    if (loggedInOwnerId && loggedInOwnerId > 0) {
+      const soRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/store_owners?owner_user_id=eq.${loggedInOwnerId}&select=store_id`, { headers: supaHeaders })
+      const soList = (soRes.ok ? await soRes.json() : []) as any[]
+      const extraIds = soList.map(item => item.store_id).filter(id => !stores.some(s => s.id === id))
+      if (extraIds.length > 0) {
+        const extraRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/stores?id=in.(${extraIds.join(',')})&select=*`, { headers: supaHeaders })
+        if (extraRes.ok) {
+          const extraStores = await extraRes.json()
+          stores = stores.concat(extraStores)
+        }
+      }
+    }
+
+    const storeIds = stores.map((s) => s.id)
+    if (storeIds.length === 0) {
+      setActiveGateway('supabase')
+      return {
+        from: from || new Date().toISOString().slice(0, 10),
+        to: to || new Date().toISOString().slice(0, 10),
+        total_sales_c: 0,
+        gross_sales_c: 0,
+        discount_c: 0,
+        cash_c: 0,
+        gcash_c: 0,
+        maya_c: 0,
+        utang_c: 0,
+        transaction_count: 0,
+        void_count: 0,
+        void_total_c: 0,
+        branches: []
+      } as T
+    }
+
+    // Fetch sales for active stores
+    let salesQuery = `${SUPABASE_CONFIG.url}/rest/v1/sales?store_id=in.(${storeIds.join(',')})&select=id,store_id,subtotal_c,discount_c,total_c,cash_c,gcash_c,maya_c,utang_c,status,sold_at&order=sold_at.desc&limit=2000`
     const salesRes = await fetch(salesQuery, { headers: supaHeaders })
-    const sales = (salesRes.ok ? await salesRes.json() : []) as any[]
+    const allSales = (salesRes.ok ? await salesRes.json() : []) as any[]
+
+    // Filter by local date range
+    const sales = allSales.filter(s => {
+      const day = toLocalDay(s.sold_at)
+      if (from && day < from) return false
+      if (to && day > to) return false
+      return true
+    })
 
     let totalSalesC = 0
     let grossSalesC = 0
@@ -315,11 +380,15 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
     const store = storeArr[0] || { id: storeId, branch_name: 'Store', last_sale_at: null, last_sync_at: null }
 
     // Fetch sales for this store
-    let salesQuery = `${SUPABASE_CONFIG.url}/rest/v1/sales?store_id=eq.${storeId}&select=*&order=sold_at.desc&limit=200`
-    if (from) salesQuery += `&sold_at=gte.${from}T00:00:00`
-    if (to) salesQuery += `&sold_at=lte.${to}T23:59:59`
+    let salesQuery = `${SUPABASE_CONFIG.url}/rest/v1/sales?store_id=eq.${storeId}&select=*&order=sold_at.desc&limit=1000`
     const salesRes = await fetch(salesQuery, { headers: supaHeaders })
-    const sales = (salesRes.ok ? await salesRes.json() : []) as any[]
+    const allStoreSales = (salesRes.ok ? await salesRes.json() : []) as any[]
+    const sales = allStoreSales.filter(s => {
+      const day = toLocalDay(s.sold_at)
+      if (from && day < from) return false
+      if (to && day > to) return false
+      return true
+    })
 
     // Fetch shifts
     const shiftsRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/shift_snapshots?store_id=eq.${storeId}&select=*&order=closed_at.desc&limit=20`, { headers: supaHeaders })

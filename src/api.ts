@@ -54,16 +54,141 @@ export function clearToken(): void {
   localStorage.removeItem('tinda_owner_token')
 }
 
+async function randomHexBrowser(bytes = 16): Promise<string> {
+  const arr = new Uint8Array(bytes)
+  crypto.getRandomValues(arr)
+  return Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function hashPbkdf2InBrowser(password: string, saltHex: string): Promise<string> {
+  const enc = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  )
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: enc.encode(saltHex),
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    256
+  )
+  return Array.from(new Uint8Array(derivedBits))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+async function verifyPbkdf2InBrowser(password: string, saltHex: string, expectedHash: string): Promise<boolean> {
+  const computed = await hashPbkdf2InBrowser(password, saltHex)
+  return computed === expectedHash
+}
+
+async function generateStatelessToken(
+  ownerId: number,
+  username: string,
+  secret = 'change-this-in-production-use-wrangler-secret'
+): Promise<string> {
+  const expiresAt = Date.now() + 24 * 60 * 60 * 1000
+  const data = `${ownerId}:${username.toLowerCase()}:${expiresAt}`
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(data))
+  const sigHex = Array.from(new Uint8Array(sigBuf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+  return `v2.${ownerId}.${username.toLowerCase()}.${expiresAt}.${sigHex}`
+}
+
 /**
  * Autonomous Dual-Cloud Fallback:
  * If the primary Cloudflare Worker endpoint fails or hits daily row limits,
  * seamlessly query Supabase Managed PostgreSQL REST API without breaking the UI.
  */
-async function resolveViaSupabase<T>(endpoint: string): Promise<T> {
+async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const supaHeaders = {
     apikey: SUPABASE_CONFIG.anonKey,
     Authorization: `Bearer ${SUPABASE_CONFIG.anonKey}`,
     'Content-Type': 'application/json'
+  }
+
+  // 0a. Owner Login: /api/owner/login
+  if (endpoint === '/api/owner/login' || endpoint.startsWith('/api/owner/login')) {
+    let username = ''
+    let password = ''
+    try {
+      const parsed = typeof options.body === 'string' ? JSON.parse(options.body) : (options.body || {})
+      username = String(parsed.username || '').trim().toLowerCase()
+      password = String(parsed.password || '').trim()
+    } catch {}
+
+    if (!username || !password) {
+      throw new Error('Username and password are required.')
+    }
+
+    const userRes = await fetch(
+      `${SUPABASE_CONFIG.url}/rest/v1/owner_users?username=eq.${encodeURIComponent(username)}&select=*`,
+      { headers: supaHeaders }
+    )
+    const users = (userRes.ok ? await userRes.json() : []) as any[]
+    if (!users || users.length === 0) {
+      throw new Error('Invalid username or password.')
+    }
+
+    const ownerRecord = users[0]
+    const valid = await verifyPbkdf2InBrowser(password, ownerRecord.password_salt, ownerRecord.password_hash)
+    if (!valid) {
+      throw new Error('Invalid username or password.')
+    }
+
+    const token = await generateStatelessToken(ownerRecord.id, ownerRecord.username)
+    setActiveGateway('supabase')
+    return { ok: true, token, expiresIn: 86400 } as T
+  }
+
+  // 0b. Owner Setup: /api/owner/setup
+  if (endpoint === '/api/owner/setup' || endpoint.startsWith('/api/owner/setup')) {
+    let username = ''
+    let password = ''
+    try {
+      const parsed = typeof options.body === 'string' ? JSON.parse(options.body) : (options.body || {})
+      username = String(parsed.username || '').trim().toLowerCase()
+      password = String(parsed.password || '').trim()
+    } catch {}
+
+    if (!username || !password) {
+      throw new Error('Username and password are required.')
+    }
+
+    const salt = await randomHexBrowser(16)
+    const hash = await hashPbkdf2InBrowser(password, salt)
+
+    const insertRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/owner_users`, {
+      method: 'POST',
+      headers: { ...supaHeaders, Prefer: 'return=representation' },
+      body: JSON.stringify({
+        username,
+        password_hash: hash,
+        password_salt: salt
+      })
+    })
+
+    const created = insertRes.ok ? await insertRes.json() : []
+    const ownerId = created[0]?.id || 1
+    const token = await generateStatelessToken(ownerId, username)
+    setActiveGateway('supabase')
+    return { ok: true, token, expiresIn: 86400 } as T
   }
 
   // 1. Overview Summary: /api/owner/summary?from=...&to=...
@@ -349,8 +474,13 @@ export async function request<T>(endpoint: string, options: RequestInit = {}): P
 
     if (!primaryFailed) {
       if (res.ok && (!data || data.ok !== false)) {
-        setActiveGateway('cloudflare')
-        return data as T
+        if (data?._notice && String(data._notice).includes('Cloudflare D1 daily free limit')) {
+          primaryFailed = true
+          failureReason = data._notice
+        } else {
+          setActiveGateway('cloudflare')
+          return data as T
+        }
       }
 
       if (res.status === 401 && (data?.code === 'SESSION_EXPIRED' || data?.code === 'UNAUTHORIZED')) {
@@ -375,7 +505,7 @@ export async function request<T>(endpoint: string, options: RequestInit = {}): P
   if (primaryFailed) {
     console.warn(`[DualCloud] Primary gateway failure (${failureReason}). Attempting Supabase failover for ${endpoint}...`)
     try {
-      const fallbackData = await resolveViaSupabase<T>(endpoint)
+      const fallbackData = await resolveViaSupabase<T>(endpoint, options)
       console.log(`[DualCloud] ⚡ Successfully resolved ${endpoint} via Supabase Secondary Cloud!`)
       return fallbackData
     } catch (fallbackErr: any) {

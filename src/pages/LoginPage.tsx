@@ -42,7 +42,9 @@ export const LoginPage: React.FC<Props> = ({ onLoginSuccess }) => {
 
     try {
       const endpoint = isSetup ? '/api/owner/setup' : '/api/owner/login'
-      const payload: any = { username, password }
+      const cleanUsername = username.trim()
+      const cleanPassword = password.trim()
+      const payload: any = { username: cleanUsername, password: cleanPassword }
       if (isSetup && fullName.trim()) {
         payload.full_name = fullName.trim()
       }

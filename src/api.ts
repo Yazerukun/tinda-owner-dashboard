@@ -8,7 +8,7 @@ export const SUPABASE_CONFIG = {
 }
 
 export type ActiveCloudGateway = 'cloudflare' | 'supabase'
-let currentActiveGateway: ActiveCloudGateway = 'cloudflare'
+let currentActiveGateway: ActiveCloudGateway = (localStorage.getItem('tinda_active_gateway') as ActiveCloudGateway) || 'supabase'
 const gatewayListeners = new Set<(gw: ActiveCloudGateway) => void>()
 
 export function getActiveCloudGateway(): ActiveCloudGateway {
@@ -16,13 +16,14 @@ export function getActiveCloudGateway(): ActiveCloudGateway {
 }
 
 function setActiveGateway(gw: ActiveCloudGateway): void {
-  if (currentActiveGateway !== gw) {
-    currentActiveGateway = gw
-    for (const listener of gatewayListeners) {
-      try {
-        listener(gw)
-      } catch {}
-    }
+  currentActiveGateway = gw
+  try {
+    localStorage.setItem('tinda_active_gateway', gw)
+  } catch {}
+  for (const listener of gatewayListeners) {
+    try {
+      listener(gw)
+    } catch {}
   }
 }
 
@@ -383,6 +384,8 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
     let salesQuery = `${SUPABASE_CONFIG.url}/rest/v1/sales?store_id=eq.${storeId}&select=*&order=sold_at.desc&limit=1000`
     const salesRes = await fetch(salesQuery, { headers: supaHeaders })
     const allStoreSales = (salesRes.ok ? await salesRes.json() : []) as any[]
+    
+    // Filter by requested date range
     const sales = allStoreSales.filter(s => {
       const day = toLocalDay(s.sold_at)
       if (from && day < from) return false
@@ -391,13 +394,41 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
     })
 
     // Fetch shifts
-    const shiftsRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/shift_snapshots?store_id=eq.${storeId}&select=*&order=closed_at.desc&limit=20`, { headers: supaHeaders })
-    const shifts = (shiftsRes.ok ? await shiftsRes.json() : []) as any[]
+    const shiftsRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/shift_snapshots?store_id=eq.${storeId}&select=*&order=opened_at.desc&limit=50`, { headers: supaHeaders })
+    const rawShifts = (shiftsRes.ok ? await shiftsRes.json() : []) as any[]
+    const shifts = rawShifts.map((sh) => ({
+      cashier_name: sh.cashier_name || 'Cashier',
+      shift_date: sh.shift_date || toLocalDay(sh.opened_at),
+      opened_at: sh.opened_at,
+      closed_at: sh.closed_at || '',
+      gross_sales_c: Number(sh.gross_sales_c || 0),
+      cash_c: Number(sh.cash_c || 0),
+      gcash_c: Number(sh.gcash_c || 0),
+      maya_c: Number(sh.maya_c || 0),
+      utang_c: Number(sh.utang_c || 0),
+      refund_total_c: Number(sh.refund_total_c || 0),
+      void_count: Number(sh.void_count || 0),
+      transaction_count: Number(sh.transaction_count || 0),
+      expenses_c: Number(sh.expenses_c || 0),
+      net_sales_c: Number(sh.net_sales_c || 0)
+    }))
 
     // Fetch stock movements
-    const movementsRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/stock_movements?store_id=eq.${storeId}&select=*&order=moved_at.desc&limit=30`, { headers: supaHeaders })
-    const movements = (movementsRes.ok ? await movementsRes.json() : []) as any[]
+    const movementsRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/stock_movements?store_id=eq.${storeId}&select=*&order=moved_at.desc&limit=100`, { headers: supaHeaders })
+    const rawMovements = (movementsRes.ok ? await movementsRes.json() : []) as any[]
+    const movements = rawMovements.map((m) => ({
+      product_name: m.product_name,
+      movement_type: m.movement_type,
+      quantity_change: Number(m.quantity_change || 0),
+      quantity_before: Number(m.quantity_before || 0),
+      quantity_after: Number(m.quantity_after || 0),
+      unit: m.unit || 'piece',
+      reference: m.reference || null,
+      reason: m.reason || null,
+      moved_at: m.moved_at
+    }))
 
+    // Calculate financials for active filtered period
     let totSales = 0
     let cash = 0
     let gcash = 0
@@ -407,35 +438,69 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
     let voidCount = 0
     let voidTotal = 0
 
-    const dailyMap = new Map<string, { total_c: number; count: number }>()
-
     for (const s of sales) {
       if (s.status === 'COMPLETED') {
-        totSales += s.total_c || 0
-        cash += s.cash_c || 0
-        gcash += s.gcash_c || 0
-        maya += s.maya_c || 0
-        utang += s.utang_c || 0
+        totSales += Number(s.total_c || 0)
+        cash += Number(s.cash_c || 0)
+        gcash += Number(s.gcash_c || 0)
+        maya += Number(s.maya_c || 0)
+        utang += Number(s.utang_c || 0)
         txCount++
-
-        const dayStr = (s.sold_at || '').slice(0, 10)
-        if (dayStr) {
-          const cur = dailyMap.get(dayStr) || { total_c: 0, count: 0 }
-          cur.total_c += s.total_c || 0
-          cur.count++
-          dailyMap.set(dayStr, cur)
-        }
       } else if (s.status === 'VOIDED') {
         voidCount++
-        voidTotal += s.total_c || 0
+        voidTotal += Number(s.total_c || 0)
       }
     }
 
-    const dailyTotals = Array.from(dailyMap.entries()).map(([day, val]) => ({
-      day,
-      total_c: val.total_c,
-      count: val.count
-    }))
+    // Daily volume trend from all historical store sales
+    const dailyMap = new Map<string, { total_c: number; count: number }>()
+    for (const s of allStoreSales) {
+      if (s.status === 'COMPLETED') {
+        const dayStr = toLocalDay(s.sold_at)
+        if (dayStr) {
+          const cur = dailyMap.get(dayStr) || { total_c: 0, count: 0 }
+          cur.total_c += Number(s.total_c || 0)
+          cur.count++
+          dailyMap.set(dayStr, cur)
+        }
+      }
+    }
+    const dailyTotals = Array.from(dailyMap.entries())
+      .map(([day, val]) => ({ day, total_c: val.total_c, count: val.count }))
+      .sort((a, b) => a.day.localeCompare(b.day))
+
+    // Low stock items from latest movement balances
+    const stockMap = new Map<string, any>()
+    for (const m of movements) {
+      if (!stockMap.has(m.product_name)) {
+        stockMap.set(m.product_name, {
+          product_name: m.product_name,
+          quantity_after: Number(m.quantity_after || 0),
+          unit: m.unit || 'piece',
+          moved_at: m.moved_at
+        })
+      }
+    }
+    const lowStockItems = Array.from(stockMap.values()).filter(it => it.quantity_after <= 10)
+
+    // Top products
+    const saleIds = sales.slice(0, 50).map(s => s.id)
+    let topProducts: any[] = []
+    if (saleIds.length > 0) {
+      try {
+        const itemsRes = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/sale_items?sale_id=in.(${saleIds.join(',')})&select=*`, { headers: supaHeaders })
+        const items = (itemsRes.ok ? await itemsRes.json() : []) as any[]
+        const pMap = new Map<string, any>()
+        for (const it of items) {
+          const cur = pMap.get(it.product_name) || { product_name: it.product_name, total_qty: 0, total_c: 0, sale_count: 0 }
+          cur.total_qty += Number(it.qty || 1)
+          cur.total_c += Number(it.subtotal_c || 0)
+          cur.sale_count += 1
+          pMap.set(it.product_name, cur)
+        }
+        topProducts = Array.from(pMap.values()).sort((a, b) => b.total_c - a.total_c).slice(0, 10)
+      } catch {}
+    }
 
     setActiveGateway('supabase')
     const branchDetail: any = {
@@ -472,8 +537,10 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
       })),
       stockMovements: movements,
       shifts,
-      topProducts: [],
-      dailyTotals
+      topProducts,
+      dailyTotals,
+      hourlyTotals: [],
+      lowStockItems
     }
 
     return branchDetail as T
@@ -493,6 +560,15 @@ async function resolveViaSupabase<T>(endpoint: string, options: RequestInit = {}
 }
 
 export async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  // ⚡ DUAL-CLOUD FAST RESOLVE: If active gateway is Supabase, resolve directly
+  if (getActiveCloudGateway() === 'supabase') {
+    try {
+      return await resolveViaSupabase<T>(endpoint, options)
+    } catch (e: any) {
+      console.warn('[DualCloud] Direct Supabase resolution error, trying primary:', e?.message || e)
+    }
+  }
+
   const base = getApiBase()
   const token = getToken()
   const headers = new Headers(options.headers || {})
@@ -543,9 +619,9 @@ export async function request<T>(endpoint: string, options: RequestInit = {}): P
 
     if (!primaryFailed) {
       if (res.ok && (!data || data.ok !== false)) {
-        if (data?._notice && String(data._notice).includes('Cloudflare D1 daily free limit')) {
+        if (data?._notice) {
           primaryFailed = true
-          failureReason = data._notice
+          failureReason = String(data._notice)
         } else {
           setActiveGateway('cloudflare')
           return data as T
